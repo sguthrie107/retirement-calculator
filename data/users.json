@@ -21,7 +21,7 @@
           "end_age": 50,
           "allocation": {
             "us_stock": { "pct": 0.70, "ticker": "FXAIX", "label": "S&P 500" },
-            "foreign_stock": { "pct": 0.30, "ticker": "FZILX", "label": "Ex-US" }
+            "foreign_stock": { "pct": 0.30, "ticker": "FSGGX", "label": "Global Equity" }
           }
         },
         "phase_2": {
@@ -29,7 +29,7 @@
           "end_age": 65,
           "allocation": {
             "us_stock": { "pct": 0.60, "ticker": "FXAIX", "label": "S&P 500" },
-            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Ex-US" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FSGGX", "label": "Global Equity" },
             "bonds": { "pct": 0.20, "ticker": "FXNAX", "label": "Total Bond" }
           }
         },
@@ -38,7 +38,7 @@
           "end_age": null,
           "allocation": {
             "us_stock": { "pct": 0.40, "ticker": "FXAIX", "label": "S&P 500" },
-            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Ex-US" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FSGGX", "label": "Global Equity" },
             "bonds": { "pct": 0.40, "ticker": "FXNAX", "label": "Total Bond" }
           }
         }
