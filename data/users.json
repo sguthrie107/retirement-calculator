@@ -1,0 +1,92 @@
+{
+  "users": [
+    {
+      "name": "Steven",
+      "age": 35,
+      "retirement_age": 65,
+      "current_401k_balance": 150000,
+      "contribution_details": {
+        "annual_salary": 120000,
+        "annual_contribution_pct": 0.15,
+        "company_match_pct": 0.05,
+        "salary_increase_pct": 0.03,
+        "contribution_frequency": "bi-weekly",
+        "company_match_type": "dollar-for-dollar",
+        "company_match_vested_pct": 1.0
+      },
+      "fund_provider": "Fidelity",
+      "phases": {
+        "phase_1": {
+          "name": "Growth (Up to 50)",
+          "end_age": 50,
+          "allocation": {
+            "us_stock": { "pct": 0.70, "ticker": "FXAIX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.30, "ticker": "FZILX", "label": "Ex-US" }
+          }
+        },
+        "phase_2": {
+          "name": "Moderate (50 to 65)",
+          "end_age": 65,
+          "allocation": {
+            "us_stock": { "pct": 0.60, "ticker": "FXAIX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Ex-US" },
+            "bonds": { "pct": 0.20, "ticker": "FXNAX", "label": "Total Bond" }
+          }
+        },
+        "phase_3": {
+          "name": "Conservative (65+)",
+          "end_age": null,
+          "allocation": {
+            "us_stock": { "pct": 0.40, "ticker": "FXAIX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Ex-US" },
+            "bonds": { "pct": 0.40, "ticker": "FXNAX", "label": "Total Bond" }
+          }
+        }
+      }
+    },
+    {
+      "name": "Alyssa",
+      "age": 32,
+      "retirement_age": 65,
+      "current_401k_balance": 95000,
+      "contribution_details": {
+        "annual_salary": 110000,
+        "annual_contribution_pct": 0.12,
+        "company_match_pct": 0.04,
+        "salary_increase_pct": 0.03,
+        "contribution_frequency": "bi-weekly",
+        "company_match_type": "dollar-for-dollar",
+        "company_match_vested_pct": 1.0
+      },
+      "fund_provider": "Vanguard",
+      "phases": {
+        "phase_1": {
+          "name": "Growth (Up to 50)",
+          "end_age": 50,
+          "allocation": {
+            "us_stock": { "pct": 0.70, "ticker": "VFIAX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.30, "ticker": "VTIAX", "label": "Ex-US" }
+          }
+        },
+        "phase_2": {
+          "name": "Moderate (50 to 65)",
+          "end_age": 65,
+          "allocation": {
+            "us_stock": { "pct": 0.60, "ticker": "VFIAX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.20, "ticker": "VTIAX", "label": "Ex-US" },
+            "bonds": { "pct": 0.20, "ticker": "VBTLX", "label": "Total Bond" }
+          }
+        },
+        "phase_3": {
+          "name": "Conservative (65+)",
+          "end_age": null,
+          "allocation": {
+            "us_stock": { "pct": 0.40, "ticker": "VFIAX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.20, "ticker": "VTIAX", "label": "Ex-US" },
+            "bonds": { "pct": 0.40, "ticker": "VBTLX", "label": "Total Bond" }
+          }
+        }
+      }
+    }
+  ]
+}
