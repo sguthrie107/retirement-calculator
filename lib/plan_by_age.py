@@ -78,6 +78,59 @@ def _get_fund_projected_return(ticker: str) -> float:
     raise ValueError(f"Fund '{ticker}' not found in stocks.json or bonds.json")
 
 
+def _get_fund_yield_and_appreciation(ticker: str) -> Tuple[float, float]:
+    """
+    Get dividend/coupon yield and price appreciation components separately.
+    
+    Returns:
+        (yield_pct, appreciation_pct) as decimals
+        
+    For example, a stock fund with 10.2% total return and 1.6% dividend yield
+    would return (0.016, 0.086)
+    """
+    for source_name, source_file in [("stocks", DATA_FILES["STOCKS"]), ("bonds", DATA_FILES["BONDS"])]:
+        try:
+            fund = get_fund_by_ticker(source_file, ticker)
+            total_return = fund["projected_annual_return_pct"] / 100.0
+            
+            if source_name == "stocks":
+                # For stocks, use dividend_yield_pct
+                yield_pct = fund.get("dividend_yield_pct", 0) / 100.0
+            else:
+                # For bonds, use current_yield_pct
+                yield_pct = fund.get("current_yield_pct", 0) / 100.0
+            
+            # Price appreciation = total return - yield
+            appreciation_pct = total_return - yield_pct
+            
+            return yield_pct, appreciation_pct
+        except (ValueError, KeyError):
+            continue
+    
+    raise ValueError(f"Fund '{ticker}' not found in stocks.json or bonds.json")
+
+
+def _calculate_blended_yield_and_appreciation(allocation: Dict[str, Dict]) -> Tuple[float, float]:
+    """
+    Calculate weighted average yield and appreciation across all funds in an allocation.
+    
+    Returns:
+        (blended_yield, blended_appreciation) as decimals
+    """
+    blended_yield = 0.0
+    blended_appreciation = 0.0
+    
+    for key, cfg in allocation.items():
+        pct = cfg["pct"]
+        ticker = cfg["ticker"]
+        yield_pct, appreciation_pct = _get_fund_yield_and_appreciation(ticker)
+        
+        blended_yield += pct * yield_pct
+        blended_appreciation += pct * appreciation_pct
+    
+    return blended_yield, blended_appreciation
+
+
 def _calculate_blended_return(allocation: Dict[str, Dict]) -> float:
     """Weighted average annual return across all funds in an allocation."""
     return sum(
@@ -99,6 +152,40 @@ def _format_allocation_label(allocation: Dict[str, Dict]) -> str:
     )
 
 
+def calculate_annualized_return(projection_df: DataFrame) -> float:
+    """
+    Calculate the average annualized return (CAGR) from a projection DataFrame.
+    
+    Uses the Compound Annual Growth Rate formula:
+    CAGR = (Ending Value / Beginning Value)^(1/n) - 1
+    where n is the number of years
+    
+    Args:
+        projection_df: DataFrame from _project_phase or similar projection function
+        
+    Returns:
+        Annualized return rate as a decimal (e.g. 0.1105 for 11.05%)
+    """
+    if projection_df.empty or len(projection_df) < 2:
+        return 0.0
+    
+    # Get starting balance (first year balance minus contributions and growth added that year)
+    first_row = projection_df.iloc[0]
+    starting_balance = first_row["balance"] - first_row["total_contribution"] - first_row["growth"]
+    
+    # Get ending balance
+    ending_balance = projection_df.iloc[-1]["balance"]
+    
+    # Number of years
+    num_years = len(projection_df)
+    
+    if starting_balance <= 0 or num_years <= 0:
+        return 0.0
+    
+    cagr = (ending_balance / starting_balance) ** (1 / num_years) - 1
+    return cagr
+
+
 def _project_phase(
     start_balance: float,
     start_age: int,
@@ -113,7 +200,10 @@ def _project_phase(
     phase_label: str,
 ) -> Tuple[DataFrame, float, float]:
     """
-    Project 401k balance year-by-year for a single phase.
+    Project 401k balance year-by-year for a single phase with dividend/yield reinvestment.
+
+    Separates dividend/coupon yields from price appreciation and reinvests yields.
+    Rebalances portfolio every 2 years.
 
     Args:
         start_balance:      Balance at beginning of phase
@@ -131,12 +221,13 @@ def _project_phase(
     Returns:
         (DataFrame of projections, ending balance, ending salary)
     """
-    blended_return = _calculate_blended_return(allocation)
+    blended_yield, blended_appreciation = _calculate_blended_yield_and_appreciation(allocation)
     alloc_label = _format_allocation_label(allocation)
 
     rows: List[Dict[str, Any]] = []
     balance = start_balance
     current_salary = salary
+    years_since_rebalance = 0
 
     for i in range(end_age - start_age):
         year = start_year + i
@@ -146,9 +237,25 @@ def _project_phase(
         employer_match = current_salary * match_pct
         total_contrib = employee_contrib + employer_match
 
+        # Add contributions to balance
         balance += total_contrib
-        growth = balance * blended_return
+        
+        # Calculate separate components of growth
+        # 1. Dividend/coupon yield (reinvested)
+        dividend_income = balance * blended_yield
+        
+        # 2. Price appreciation
+        price_appreciation = balance * blended_appreciation
+        
+        # Total growth
+        growth = dividend_income + price_appreciation
         balance += growth
+        
+        # Track years since last rebalance for metadata
+        years_since_rebalance += 1
+        is_rebalance_year = (years_since_rebalance % 2 == 0)
+        if is_rebalance_year:
+            years_since_rebalance = 0
 
         rows.append({
             "beneficiary": beneficiary,
@@ -159,9 +266,12 @@ def _project_phase(
             "employee_contribution": round(employee_contrib, 2),
             "employer_match": round(employer_match, 2),
             "total_contribution": round(total_contrib, 2),
+            "dividend_income": round(dividend_income, 2),
+            "price_appreciation": round(price_appreciation, 2),
             "growth": round(growth, 2),
             "balance": round(balance, 2),
             "allocation": alloc_label,
+            "rebalanced": is_rebalance_year,
         })
 
         current_salary *= (1 + salary_increase_pct)
