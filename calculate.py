@@ -15,6 +15,7 @@ Usage:
 
 import sys
 import pandas as pd
+from tabulate import tabulate
 
 from lib.plan_by_age import (
     retirement_401k_full_plan,
@@ -67,62 +68,78 @@ def _input_choice(prompt: str, options: dict) -> str:
 # Display helpers
 # ---------------------------------------------------------------------------
 
-def _format_currency_col(series: pd.Series) -> pd.Series:
-    """Format a numeric series as $1,234.56 strings."""
-    return series.apply(lambda x: f"${x:>15,.2f}")
+def _format_currency(value: float) -> str:
+    """Format a numeric value as $1,234.56 string."""
+    return f"${value:,.2f}"
+
 
 
 def _display_projection(df: pd.DataFrame) -> None:
-    """Pretty-print the projection DataFrame and summary statistics."""
+    """Pretty-print the projection DataFrame as an Excel-like table."""
     if df.empty:
         print("\n  No projection data — check age and retirement age inputs.\n")
         return
 
-    display = df.copy()
-    currency_cols = [
-        "salary",
-        "employee_contribution",
-        "employer_match",
-        "total_contribution",
-        "growth",
-        "balance",
-    ]
-    for col in currency_cols:
-        display[col] = _format_currency_col(display[col])
+    beneficiary = df['beneficiary'].iloc[0]
+    start_age = int(df['age'].iloc[0])
+    end_age = int(df['age'].iloc[-1])
 
-    # Pandas display settings for full output
-    pd.set_option("display.max_rows", None)
-    pd.set_option("display.max_columns", None)
-    pd.set_option("display.width", 220)
-    pd.set_option("display.colheader_justify", "right")
-
-    header = (
-        f"  401K PROJECTION: {df['beneficiary'].iloc[0]}  |  "
-        f"Ages {int(df['age'].iloc[0])} → {int(df['age'].iloc[-1])}"
-    )
+    # Prepare data for display
+    display_data = []
+    for idx, row in df.iterrows():
+        display_data.append({
+            "Age": int(row['age']),
+            "Year": int(row['year']),
+            "Phase": row.get('phase', 'N/A'),
+            "Salary": _format_currency(row['salary']),
+            "Employee Contrib": _format_currency(row['employee_contribution']),
+            "Employer Match": _format_currency(row['employer_match']),
+            "Total Contrib": _format_currency(row['total_contribution']),
+            "Growth": _format_currency(row['growth']),
+            "Balance": _format_currency(row['balance']),
+        })
 
     print()
-    print("=" * 180)
-    print(header)
-    print("=" * 180)
-    print(display.to_string(index=False))
-    print("=" * 180)
+    print("=" * 160)
+    print(f"  401K PROJECTION: {beneficiary} (Ages {start_age} to {end_age})")
+    print("=" * 160)
+    
+    # Use tabulate to create an Excel-like table
+    table_output = tabulate(
+        display_data,
+        headers="keys",
+        tablefmt="grid",
+        floatfmt=".2f",
+    )
+    print(table_output)
+    print("=" * 160)
 
-    # Summary
+    # Summary statistics
     final_balance = df["balance"].iloc[-1]
     total_contributions = df["total_contribution"].sum()
     total_growth = df["growth"].sum()
     total_employee = df["employee_contribution"].sum()
     total_employer = df["employer_match"].sum()
 
+    summary_data = [
+        ["Final Balance at Age " + str(end_age), _format_currency(final_balance)],
+        ["Total Employee Contributions", _format_currency(total_employee)],
+        ["Total Employer Match", _format_currency(total_employer)],
+        ["Total Contributions", _format_currency(total_contributions)],
+        ["Total Investment Growth", _format_currency(total_growth)],
+    ]
+
     print()
-    print("  SUMMARY")
-    print("  " + "-" * 50)
-    print(f"  Final Balance at Age {int(df['age'].iloc[-1]):>3}:  ${final_balance:>15,.2f}")
-    print(f"  Total Employee Contributions:   ${total_employee:>15,.2f}")
-    print(f"  Total Employer Match:           ${total_employer:>15,.2f}")
-    print(f"  Total Contributions:            ${total_contributions:>15,.2f}")
-    print(f"  Total Investment Growth:        ${total_growth:>15,.2f}")
+    print("  SUMMARY STATISTICS")
+    print("  " + "=" * 70)
+    summary_output = tabulate(
+        summary_data,
+        tablefmt="plain",
+        floatfmt=".2f",
+    )
+    for line in summary_output.split('\n'):
+        print("  " + line)
+    print("  " + "=" * 70)
     print()
 
 
@@ -149,7 +166,7 @@ def main() -> None:
             "Select profile",
             {"1": "Steven", "2": "Alyssa"},
         )
-        print(f"\n  Loading profile for {name} …")
+        print(f"\n  Loading profile for {name}...")
         df = retirement_401k_full_plan(name)
     else:
         print()
@@ -171,7 +188,7 @@ def main() -> None:
             {"1": "Vanguard", "2": "Fidelity"},
         )
 
-        print(f"\n  Calculating projection for {name} …")
+        print(f"\n  Calculating projection for {name}...")
         df = retirement_401k_custom_plan(
             name=name,
             age=age,
