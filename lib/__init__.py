@@ -20,6 +20,13 @@ Example usage:
     all_bonds = get_all_bonds()
 """
 
+from .plan_by_age import (
+    retirement_401k_age_based_plan_phase_1,
+    retirement_401k_age_based_plan_phase_2,
+    retirement_401k_age_based_plan_phase_3,
+    retirement_401k_full_plan,
+    retirement_401k_custom_plan,
+)
 from .stocks import (
     get_all_stocks,
     get_stock,
@@ -55,6 +62,12 @@ from .assets import (
 )
 
 __all__ = [
+    # Plan by age
+    "retirement_401k_age_based_plan_phase_1",
+    "retirement_401k_age_based_plan_phase_2",
+    "retirement_401k_age_based_plan_phase_3",
+    "retirement_401k_full_plan",
+    "retirement_401k_custom_plan",
     # Stocks
     "get_all_stocks",
     "get_stock",
