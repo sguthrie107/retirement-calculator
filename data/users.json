@@ -15,6 +15,38 @@
         "company_match_vested_pct": 1.0
       },
       "fund_provider": "Fidelity",
+      "current_ira_balance": 40000,
+      "ira_phases": {
+        "phase_1": {
+          "name": "Growth (Up to 50)",
+          "end_age": 50,
+          "allocation": {
+            "us_total_market": { "pct": 0.60, "ticker": "FZROX", "label": "Total Market" },
+            "foreign_stock": { "pct": 0.30, "ticker": "FZILX", "label": "Intl Index" },
+            "us_large_cap": { "pct": 0.10, "ticker": "FSPGX", "label": "S&P 500" }
+          }
+        },
+        "phase_2": {
+          "name": "Moderate (51 to 65)",
+          "end_age": 65,
+          "allocation": {
+            "us_total_market": { "pct": 0.60, "ticker": "FZROX", "label": "Total Market" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Intl Index" },
+            "corporate_bonds": { "pct": 0.20, "ticker": "FUAMX", "label": "Corp Bonds" }
+          }
+        },
+        "phase_3": {
+          "name": "Conservative (65+)",
+          "end_age": null,
+          "allocation": {
+            "us_total_market": { "pct": 0.40, "ticker": "FZROX", "label": "Total Market" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Intl Index" },
+            "corporate_bonds": { "pct": 0.15, "ticker": "FUAMX", "label": "Corp Bonds" },
+            "us_bonds": { "pct": 0.15, "ticker": "FNAX", "label": "Agg Bonds" },
+            "intm_bonds": { "pct": 0.10, "ticker": "FIPDX", "label": "Intm Bonds" }
+          }
+        }
+      },
       "phases": {
         "phase_1": {
           "name": "Growth (Up to 50)",
@@ -59,6 +91,38 @@
         "company_match_vested_pct": 1.0
       },
       "fund_provider": "Vanguard",
+      "current_ira_balance": 50000,
+      "ira_phases": {
+        "phase_1": {
+          "name": "Growth (Up to 50)",
+          "end_age": 50,
+          "allocation": {
+            "us_total_market": { "pct": 0.60, "ticker": "FZROX", "label": "Total Market" },
+            "foreign_stock": { "pct": 0.30, "ticker": "FZILX", "label": "Intl Index" },
+            "us_large_cap": { "pct": 0.10, "ticker": "FSPGX", "label": "S&P 500" }
+          }
+        },
+        "phase_2": {
+          "name": "Moderate (51 to 65)",
+          "end_age": 65,
+          "allocation": {
+            "us_total_market": { "pct": 0.60, "ticker": "FZROX", "label": "Total Market" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Intl Index" },
+            "corporate_bonds": { "pct": 0.20, "ticker": "FUAMX", "label": "Corp Bonds" }
+          }
+        },
+        "phase_3": {
+          "name": "Conservative (65+)",
+          "end_age": null,
+          "allocation": {
+            "us_total_market": { "pct": 0.40, "ticker": "FZROX", "label": "Total Market" },
+            "foreign_stock": { "pct": 0.20, "ticker": "FZILX", "label": "Intl Index" },
+            "corporate_bonds": { "pct": 0.15, "ticker": "FUAMX", "label": "Corp Bonds" },
+            "us_bonds": { "pct": 0.15, "ticker": "FNAX", "label": "Agg Bonds" },
+            "intm_bonds": { "pct": 0.10, "ticker": "FIPDX", "label": "Intm Bonds" }
+          }
+        }
+      },
       "phases": {
         "phase_1": {
           "name": "Growth (Up to 50)",
