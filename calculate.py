@@ -73,6 +73,23 @@ def _format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def _calculate_annualized_return(df: pd.DataFrame) -> float:
+    """
+    Calculate the average annualized return using CAGR formula.
+    
+    CAGR = (Ending Value / Beginning Value)^(1/n) - 1
+    where n is the number of years
+    """
+    starting_balance = df["balance"].iloc[0] - df["total_contribution"].iloc[0] + df["growth"].iloc[0]
+    ending_balance = df["balance"].iloc[-1]
+    num_years = len(df)
+    
+    if starting_balance <= 0 or num_years <= 0:
+        return 0.0
+    
+    cagr = (ending_balance / starting_balance) ** (1 / num_years) - 1
+    return cagr
+
 
 def _display_projection(df: pd.DataFrame) -> None:
     """Pretty-print the projection DataFrame as an Excel-like table."""
@@ -120,6 +137,7 @@ def _display_projection(df: pd.DataFrame) -> None:
     total_growth = df["growth"].sum()
     total_employee = df["employee_contribution"].sum()
     total_employer = df["employer_match"].sum()
+    annualized_return = _calculate_annualized_return(df)
 
     summary_data = [
         ["Final Balance at Age " + str(end_age), _format_currency(final_balance)],
@@ -127,6 +145,7 @@ def _display_projection(df: pd.DataFrame) -> None:
         ["Total Employer Match", _format_currency(total_employer)],
         ["Total Contributions", _format_currency(total_contributions)],
         ["Total Investment Growth", _format_currency(total_growth)],
+        ["Average Annualized Return", f"{annualized_return * 100:.2f}%"],
     ]
 
     print()
