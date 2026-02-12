@@ -90,6 +90,28 @@
       "volatility_pct": 22.0
     },
     {
+      "ticker": "FSGGX",
+      "52_week_high": 72.40,
+      "52_week_low": 55.30,
+      "allocation_domestic_pct": 0,
+      "allocation_international_pct": 100,
+      "assets_under_management_billions": 8.2,
+      "category": "Global Equity",
+      "current_price": 68.95,
+      "dividend_yield_pct": 1.8,
+      "expense_ratio": 0.60,
+      "expense_ratio_note": "Actively managed international equity fund",
+      "fund_type": "Mutual Fund",
+      "holdings_count": 120,
+      "inception_date": "2012-05-23",
+      "name": "Fidelity Global Equity Fund",
+      "projected_annual_return_pct": 8.2,
+      "rebalance_frequency": "Quarterly",
+      "return_assumption_basis": "Long-term global equity average with active management premium",
+      "top_holdings": ["Nestle", "ASML", "Samsung"],
+      "volatility_pct": 21.5
+    },
+    {
       "ticker": "FZROX",
       "52_week_high": 141.75,
       "52_week_low": 112.30,

@@ -17,7 +17,7 @@ US Stock:     S&P 500 Mutual Funds
 Foreign Stock: Ex-US Mutual Funds
 Bonds:        Total Bond Market Funds
 
-Steven → Fidelity funds (FXAIX, FZILX, FXNAX)
+Steven → Fidelity funds (FXAIX, FSGGX, FXNAX)
 Alyssa → Vanguard Admiral funds (VFIAX, VTIAX, VBTLX)
 """
 
@@ -25,7 +25,7 @@ Alyssa → Vanguard Admiral funds (VFIAX, VTIAX, VBTLX)
 # Fund provider → ticker mapping (used by custom plan)
 # ---------------------------------------------------------------------------
 FUND_TICKERS = {
-    "fidelity": {"us": "FXAIX", "intl": "FZILX", "bond": "FXNAX"},
+    "fidelity": {"us": "FXAIX", "intl": "FSGGX", "bond": "FXNAX"},
     "vanguard": {"us": "VFIAX", "intl": "VTIAX", "bond": "VBTLX"},
 }
 
