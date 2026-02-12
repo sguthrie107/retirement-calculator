@@ -308,7 +308,7 @@ def retirement_401k_age_based_plan_phase_1(
 
     user = _load_user_data(beneficiary)
     contrib = user["contribution_details"]
-    phase_cfg = user["phases"]["phase_1"]
+    phase_cfg = user["401k_phases"]["phase_1"]
     end_age = phase_cfg["end_age"]
 
     if age >= end_age:
@@ -362,7 +362,7 @@ def retirement_401k_age_based_plan_phase_2(
 
     user = _load_user_data(beneficiary)
     contrib = user["contribution_details"]
-    phase_cfg = user["phases"]["phase_2"]
+    phase_cfg = user["401k_phases"]["phase_2"]
     end_age = phase_cfg["end_age"]
 
     balance = starting_balance if starting_balance is not None else user["current_401k_balance"]
@@ -421,7 +421,7 @@ def retirement_401k_age_based_plan_phase_3(
 
     user = _load_user_data(beneficiary)
     contrib = user["contribution_details"]
-    phase_cfg = user["phases"]["phase_3"]
+    phase_cfg = user["401k_phases"]["phase_3"]
     end_age = retirement_age or user.get("retirement_age", 70)
 
     balance = starting_balance if starting_balance is not None else user["current_401k_balance"]
@@ -487,7 +487,7 @@ def retirement_401k_full_plan(
         ("phase_2", "Phase 2"),
         ("phase_3", "Phase 3"),
     ]:
-        phase_cfg = user["phases"][phase_key]
+        phase_cfg = user["401k_phases"][phase_key]
         end_age = phase_cfg["end_age"] if phase_cfg["end_age"] is not None else retirement_age
         end_age = min(end_age, retirement_age)
 
