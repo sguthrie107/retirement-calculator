@@ -456,18 +456,21 @@ def retirement_401k_age_based_plan_phase_3(
 def retirement_401k_full_plan(
     beneficiary: str,
     current_year: int = None,
+    post_retirement_years: int = 0,
 ) -> DataFrame:
     """
     Run a complete 3-phase 401k projection for a stored user.
 
     Chains Phase 1 → Phase 2 → Phase 3, carrying balance and salary forward.
+    Optionally continues 'Post-Retirement' using Phase 3 allocation and zero contributions.
 
     Args:
-        beneficiary:  Name of user in users.json
-        current_year: Override starting calendar year
+        beneficiary:           Name of user in users.json
+        current_year:          Override starting calendar year
+        post_retirement_years: Number of years to project after retirement (0 contributions)
 
     Returns:
-        Single DataFrame spanning all phases from current age to retirement
+        Single DataFrame spanning all phases from current age to retirement (+ post-retirement)
     """
     if current_year is None:
         current_year = date.today().year
@@ -482,6 +485,7 @@ def retirement_401k_full_plan(
     year = current_year
     frames: List[DataFrame] = []
 
+    # 1. Active working phases (1, 2, 3)
     for phase_key, label in [
         ("phase_1", "Phase 1"),
         ("phase_2", "Phase 2"),
@@ -512,6 +516,26 @@ def retirement_401k_full_plan(
         age = end_age
         year += len(df)
 
+    # 2. Post-Retirement Phase (Optional)
+    if post_retirement_years > 0:
+        # Use Phase 3 allocation (conservative/safe)
+        phase_cfg = user["401k_phases"]["phase_3"]
+        
+        df, balance, _ = _project_phase(
+            start_balance=balance,
+            start_age=age,
+            end_age=age + post_retirement_years,
+            start_year=year,
+            salary=0,  # No salary in retirement
+            contribution_pct=0,  # No contributions
+            match_pct=0,
+            salary_increase_pct=0,
+            allocation=phase_cfg["allocation"],
+            beneficiary=beneficiary,
+            phase_label="Phase 3",
+        )
+        frames.append(df)
+
     if not frames:
         return DataFrame()
     return pd.concat(frames, ignore_index=True)
@@ -532,24 +556,27 @@ def retirement_401k_custom_plan(
     starting_balance: float = 0.0,
     fund_provider: str = "Vanguard",
     current_year: int = None,
+    post_retirement_years: int = 0,
 ) -> DataFrame:
     """
     Run a 401k projection with manually-supplied inputs.
 
     Uses the same 3-phase glide path as stored users, but allows any parameter
     to be provided by the caller (e.g. from an interactive CLI).
+    Optionally continues 'Post-Retirement' using Phase 3 allocation and zero contributions.
 
     Args:
-        name:                Display name for rows
-        age:                 Current age
-        salary:              Current annual salary
-        contribution_pct:    Employee contribution rate (decimal, e.g. 0.15)
-        match_pct:           Employer match rate (decimal, e.g. 0.05)
-        salary_increase_pct: Annual salary growth rate (decimal, e.g. 0.03)
-        retirement_age:      Age to project through
-        starting_balance:    Current 401k balance (default 0)
-        fund_provider:       'Vanguard' or 'Fidelity'
-        current_year:        Override starting calendar year
+        name:                  Display name for rows
+        age:                   Current age
+        salary:                Current annual salary
+        contribution_pct:      Employee contribution rate (decimal, e.g. 0.15)
+        match_pct:             Employer match rate (decimal, e.g. 0.05)
+        salary_increase_pct:   Annual salary growth rate (decimal, e.g. 0.03)
+        retirement_age:        Age to project through
+        starting_balance:      Current 401k balance (default 0)
+        fund_provider:         'Vanguard' or 'Fidelity'
+        current_year:          Override starting calendar year
+        post_retirement_years: Number of years to project after retirement (0 contributions)
 
     Returns:
         DataFrame with year-by-year projections across all phases
@@ -596,6 +623,7 @@ def retirement_401k_custom_plan(
     year = current_year
     frames: List[DataFrame] = []
 
+    # 1. Active working phases (1, 2, 3)
     for phase_key, label in [
         ("phase_1", "Phase 1"),
         ("phase_2", "Phase 2"),
@@ -625,6 +653,26 @@ def retirement_401k_custom_plan(
         frames.append(df)
         current_age = end_age
         year += len(df)
+
+    # 2. Post-Retirement Phase (Optional)
+    if post_retirement_years > 0:
+        # Use Phase 3 (safest) allocation
+        phase_cfg = phases["phase_3"]
+        
+        df, balance, _ = _project_phase(
+            start_balance=balance,
+            start_age=current_age,
+            end_age=current_age + post_retirement_years,
+            start_year=year,
+            salary=0,  # No salary
+            contribution_pct=0,  # No contributions
+            match_pct=0,
+            salary_increase_pct=0,
+            allocation=phase_cfg["allocation"],
+            beneficiary=name,
+            phase_label="Phase 3",
+        )
+        frames.append(df)
 
     if not frames:
         return DataFrame()

@@ -19,7 +19,6 @@ Usage:
     python calculate.py
 """
 
-import sys
 import pandas as pd
 from tabulate import tabulate
 
@@ -37,62 +36,13 @@ from lib.display_utils import (
     prepare_401k_display_data,
     calculate_401k_summary,
 )
-
-
-# ---------------------------------------------------------------------------
-# Input helpers
-# ---------------------------------------------------------------------------
-
-def _input_float(prompt: str, default: float = None) -> float:
-    """Prompt for a float value with optional default."""
-    suffix = f" [{default}]" if default is not None else ""
-    while True:
-        raw = input(f"  {prompt}{suffix}: ").strip()
-        if not raw and default is not None:
-            return default
-        try:
-            return float(raw)
-        except ValueError:
-            print("    → Please enter a valid number.")
-
-
-def _input_int(prompt: str, default: int = None) -> int:
-    """Prompt for an integer value with optional default."""
-    suffix = f" [{default}]" if default is not None else ""
-    while True:
-        raw = input(f"  {prompt}{suffix}: ").strip()
-        if not raw and default is not None:
-            return default
-        try:
-            return int(raw)
-        except ValueError:
-            print("    → Please enter a valid whole number.")
-
-
-def _input_choice(prompt: str, options: dict) -> str:
-    """Prompt user to pick from numbered options. Returns the value."""
-    for key, label in options.items():
-        print(f"    {key}. {label}")
-    while True:
-        raw = input(f"  {prompt}: ").strip()
-        if raw in options:
-            return options[raw]
-        print(f"    → Please enter one of: {', '.join(options.keys())}")
-
-
-# ---------------------------------------------------------------------------
-# Display helpers
-# ---------------------------------------------------------------------------
-
-def _format_currency(value: float) -> str:
-    """Format a numeric value as $1,234.56 string."""
-    return f"${value:,.2f}"
+from lib import ui
 
 
 def _display_projection(df: pd.DataFrame) -> None:
     """Pretty-print the projection DataFrame as an Excel-like table."""
     if df.empty:
-        print("\n  No projection data — check age and retirement age inputs.\n")
+        ui.print_error("No projection data — check age and retirement age inputs.")
         return
 
     # Get display data and summary from library
@@ -105,49 +55,42 @@ def _display_projection(df: pd.DataFrame) -> None:
 
     # Format currency values for display
     for row in display_data:
-        row["Salary"] = _format_currency(row["Salary"])
-        row["Employee Contrib"] = _format_currency(row["Employee Contrib"])
-        row["Employer Match"] = _format_currency(row["Employer Match"])
-        row["Dividend Income"] = _format_currency(row["Dividend Income"])
-        row["Price Appreciation"] = _format_currency(row["Price Appreciation"])
-        row["Balance"] = _format_currency(row["Balance"])
+        row["Salary"] = ui.format_currency(row["Salary"])
+        row["Employee Contrib"] = ui.format_currency(row["Employee Contrib"])
+        row["Employer Match"] = ui.format_currency(row["Employer Match"])
+        row["Dividend Income"] = ui.format_currency(row["Dividend Income"])
+        row["Price Appreciation"] = ui.format_currency(row["Price Appreciation"])
+        row["Balance"] = ui.format_currency(row["Balance"])
 
-    print()
-    print("=" * 160)
-    print(f"  401K PROJECTION: {beneficiary} (Ages {start_age} to {end_age})")
-    print("=" * 160)
-    
-    table_output = tabulate(
-        display_data,
-        headers="keys",
-        tablefmt="grid",
-        floatfmt=".2f",
+    ui.print_data_panel(
+        f"401K PROJECTION: {beneficiary} (Ages {start_age} to {end_age})",
+        tabulate(
+            display_data,
+            headers="keys",
+            tablefmt="grid",
+            floatfmt=".2f",
+        )
     )
-    print(table_output)
-    print("=" * 160)
 
     # Summary statistics
     summary_data = [
-        ["Final Balance at Age " + str(end_age), _format_currency(summary["final_balance"])],
-        ["Total Employee Contributions", _format_currency(summary["total_employee"])],
-        ["Total Employer Match", _format_currency(summary["total_employer"])],
-        ["Total Contributions", _format_currency(summary["total_contributions"])],
-        ["Total Investment Growth", _format_currency(summary["total_growth"])],
+        ["Final Balance at Age " + str(end_age), ui.format_currency(summary["final_balance"])],
+        ["Total Employee Contributions", ui.format_currency(summary["total_employee"])],
+        ["Total Employer Match", ui.format_currency(summary["total_employer"])],
+        ["Total Contributions", ui.format_currency(summary["total_contributions"])],
+        ["Total Investment Growth", ui.format_currency(summary["total_growth"])],
         ["Average Annualized Return", f"{summary['annualized_return'] * 100:.2f}%"],
     ]
 
-    print()
-    print("  401K SUMMARY STATISTICS")
-    print("  " + "=" * 70)
-    summary_output = tabulate(
-        summary_data,
-        tablefmt="plain",
-        floatfmt=".2f",
+    ui.print_data_panel(
+        "401K SUMMARY STATISTICS",
+        tabulate(
+            summary_data,
+            tablefmt="plain",
+            floatfmt=".2f",
+        )
     )
-    for line in summary_output.split('\n'):
-        print("  " + line)
-    print("  " + "=" * 70)
-    print()
+    ui.print_divider()
 
 
 def _display_unified_projection(
@@ -156,7 +99,7 @@ def _display_unified_projection(
 ) -> None:
     """Display a unified table with both 401k and IRA data merged by year."""
     if df_401k.empty and df_ira.empty:
-        print("\n  No projection data available.\n")
+        ui.print_error("No projection data available.")
         return
 
     # Get merged data and summary from library
@@ -170,55 +113,48 @@ def _display_unified_projection(
     
     # Format currency values for display
     for row in display_data:
-        row["Total Balance"] = _format_currency(row["Total Balance"])
-        row["401k Balance"] = _format_currency(row["401k Balance"])
-        row["IRA Balance"] = _format_currency(row["IRA Balance"])
-        row["Contributions"] = _format_currency(row["Contributions"])
+        row["Total Balance"] = ui.format_currency(row["Total Balance"])
+        row["401k Balance"] = ui.format_currency(row["401k Balance"])
+        row["IRA Balance"] = ui.format_currency(row["IRA Balance"])
+        row["Contributions"] = ui.format_currency(row["Contributions"])
     
-    print()
-    print("=" * 130)
-    print(f"  RETIREMENT PROJECTION: {beneficiary} (Ages {start_age} to {end_age})")
-    print("=" * 130)
-    
-    table_output = tabulate(
-        display_data,
-        headers="keys",
-        tablefmt="grid",
-        floatfmt=".2f",
+    ui.print_data_panel(
+        f"RETIREMENT PROJECTION: {beneficiary} (Ages {start_age} to {end_age})",
+        tabulate(
+            display_data,
+            headers="keys",
+            tablefmt="grid",
+            floatfmt=".2f",
+        )
     )
-    print(table_output)
-    print("=" * 130)
     
     # Summary statistics
     summary_data = [
-        ["Final 401k Balance", _format_currency(summary["final_401k"])],
-        ["Final IRA Balance", _format_currency(summary["final_ira"])],
-        ["Combined Balance at Age " + str(end_age), _format_currency(summary["combined_balance"])],
+        ["Final 401k Balance", ui.format_currency(summary["final_401k"])],
+        ["Final IRA Balance", ui.format_currency(summary["final_ira"])],
+        ["Combined Balance at Age " + str(end_age), ui.format_currency(summary["combined_balance"])],
         ["", ""],
-        ["Total 401k Contributions", _format_currency(summary["total_401k_contributions"])],
-        ["Total IRA Contributions", _format_currency(summary["total_ira_contributions"])],
-        ["Total Contributions (All)", _format_currency(summary["total_contributions"])],
+        ["Total 401k Contributions", ui.format_currency(summary["total_401k_contributions"])],
+        ["Total IRA Contributions", ui.format_currency(summary["total_ira_contributions"])],
+        ["Total Contributions (All)", ui.format_currency(summary["total_contributions"])],
         ["", ""],
-        ["Total 401k Growth", _format_currency(summary["total_401k_growth"])],
-        ["Total IRA Growth", _format_currency(summary["total_ira_growth"])],
-        ["Total Growth (All)", _format_currency(summary["total_growth"])],
+        ["Total 401k Growth", ui.format_currency(summary["total_401k_growth"])],
+        ["Total IRA Growth", ui.format_currency(summary["total_ira_growth"])],
+        ["Total Growth (All)", ui.format_currency(summary["total_growth"])],
         ["", ""],
         ["401k Annualized Return", f"{summary['annualized_401k'] * 100:.2f}%"],
         ["IRA Annualized Return", f"{summary['annualized_ira'] * 100:.2f}%"],
     ]
     
-    print()
-    print("  SUMMARY STATISTICS")
-    print("  " + "=" * 70)
-    summary_output = tabulate(
-        summary_data,
-        tablefmt="plain",
-        floatfmt=".2f",
+    ui.print_data_panel(
+        "SUMMARY STATISTICS",
+        tabulate(
+            summary_data,
+            tablefmt="plain",
+            floatfmt=".2f",
+        )
     )
-    for line in summary_output.split('\n'):
-        print("  " + line)
-    print("  " + "=" * 70)
-    print()
+    ui.print_divider()
 
 
 # ---------------------------------------------------------------------------
@@ -226,51 +162,64 @@ def _display_unified_projection(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    print()
-    print("=" * 60)
-    print("       RETIREMENT PROJECTION CALCULATOR")
-    print("=" * 60)
-    print()
-    print("  Choose an option:")
-    print("    1. Use a stored profile (Steven or Alyssa)")
-    print("    2. Enter your own values (401k only)")
-    print()
+    # Display the control panel header
+    ui.print_header()
+    
+    # Main menu
+    ui.print_section("SYSTEM SELECTION")
+    mode = ui.input_choice(
+        "Select operational mode",
+        {"1": "Load Stored Profile", "2": "Enter Custom Parameters"}
+    )
+    
+    # Optional post-retirement calculation
+    post_ret_years = 0
+    calc_post_ret = ui.input_string("Calculate post-retirement growth? (y/n)", default="n").lower()
+    if calc_post_ret.startswith("y"):
+        post_ret_years = ui.input_int("Years to project after retirement", default=15)
 
-    mode = _input_choice("Select", {"1": "stored", "2": "custom"})
-
-    if mode == "stored":
-        print()
-        name = _input_choice(
-            "Select profile",
-            {"1": "Steven", "2": "Alyssa"},
+    if mode == "Load Stored Profile":
+        ui.print_section("PROFILE SELECTION")
+        name = ui.input_choice(
+            "Select a profile",
+            {"1": "Steven", "2": "Alyssa"}
         )
-        print(f"\n  Loading profile for {name}...")
-
-        df_401k = retirement_401k_full_plan(name)
-        df_ira = retirement_ira_full_plan(name)
+        
+        ui.print_status(f"Initializing projection for {name}...", "info")
+        ui.print_divider()
+        
+        df_401k = retirement_401k_full_plan(
+            name, 
+            post_retirement_years=post_ret_years
+        )
+        df_ira = retirement_ira_full_plan(
+            name,
+            post_retirement_years=post_ret_years
+        )
 
         _display_unified_projection(df_401k, df_ira)
     else:
-        print()
-        print("  Enter your information below.")
-        print("  " + "-" * 40)
-        name = input("  Your name: ").strip() or "User"
-        age = _input_int("Current age")
-        salary = _input_float("Annual salary ($)")
-        contrib = _input_float("Your contribution (%)", default=15)
-        match = _input_float("Employer match (%)", default=5)
-        raise_pct = _input_float("Expected annual salary increase (%)", default=3)
-        ret_age = _input_int("Retirement age", default=65)
-        balance = _input_float("Current 401k balance ($)", default=0)
+        ui.print_input_panel("PERSONAL & FINANCIAL DATA")
+        
+        name = ui.input_string("Enter your name", default="User")
+        age = ui.input_int("Current age")
+        salary = ui.input_float("Annual salary ($)")
+        contrib = ui.input_float("Your contribution (%)", default=15)
+        match = ui.input_float("Employer match (%)", default=5)
+        raise_pct = ui.input_float("Expected annual salary increase (%)", default=3)
+        ret_age = ui.input_int("Retirement age", default=65)
+        balance = ui.input_float("Current 401k balance ($)", default=0)
 
-        print()
-        print("  Fund provider (determines which mutual funds to use):")
-        provider = _input_choice(
-            "Select provider",
-            {"1": "Vanguard", "2": "Fidelity"},
+        ui.print_section("FUND PROVIDER SELECTION")
+        provider = ui.input_choice(
+            "Select fund provider",
+            {"1": "Vanguard", "2": "Fidelity"}
         )
 
-        print(f"\n  Calculating projection for {name}...")
+        ui.print_divider()
+        ui.print_status(f"Calculating projection for {name}...", "info")
+        ui.print_divider()
+        
         df = retirement_401k_custom_plan(
             name=name,
             age=age,
@@ -281,6 +230,7 @@ def main() -> None:
             retirement_age=ret_age,
             starting_balance=balance,
             fund_provider=provider,
+            post_retirement_years=post_ret_years,
         )
         _display_projection(df)
 

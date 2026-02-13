@@ -145,6 +145,7 @@ def _project_ira_phase(
     allocation: Dict[str, Dict],
     beneficiary: str,
     phase_label: str,
+    contribute: bool = True,
 ) -> Tuple[DataFrame, float]:
     """
     Project IRA balance year-by-year for a single phase.
@@ -161,6 +162,7 @@ def _project_ira_phase(
         allocation:     Dict of asset_class -> {pct, ticker, label}
         beneficiary:    Name for labeling rows
         phase_label:    e.g. 'Phase 1'
+        contribute:     Whether to make annual contributions (default True)
 
     Returns:
         (DataFrame of projections, ending balance)
@@ -177,8 +179,8 @@ def _project_ira_phase(
         year = start_year + i
         age = start_age + i + 1
 
-        # Lump-sum contribution at beginning of year
-        contribution = get_ira_contribution_limit(year)
+        # Lump-sum contribution at beginning of year (if enabled)
+        contribution = get_ira_contribution_limit(year) if contribute else 0.0
         balance += contribution
 
         # Separate growth components
@@ -210,18 +212,21 @@ def _project_ira_phase(
 def retirement_ira_full_plan(
     beneficiary: str,
     current_year: int = None,
+    post_retirement_years: int = 0,
 ) -> DataFrame:
     """
     Run a complete 3-phase IRA projection for a stored user.
 
     Chains Phase 1 -> Phase 2 -> Phase 3, carrying balance forward.
+    Optionally extends projection into 'Post-Retirement' with zero contributions.
 
     Args:
-        beneficiary:  Name of user in users.json
-        current_year: Override starting calendar year
+        beneficiary:           Name of user in users.json
+        current_year:          Override starting calendar year
+        post_retirement_years: Number of years to project after retirement (0 contributions)
 
     Returns:
-        Single DataFrame spanning all phases from current age to retirement
+        Single DataFrame spanning all phases from current age to retirement (+ post-retirement)
     """
     if current_year is None:
         current_year = date.today().year
@@ -234,6 +239,7 @@ def retirement_ira_full_plan(
     year = current_year
     frames: List[DataFrame] = []
 
+    # 1. Active working phases (1, 2, 3)
     for phase_key, label in [
         ("phase_1", "Phase 1"),
         ("phase_2", "Phase 2"),
@@ -263,6 +269,23 @@ def retirement_ira_full_plan(
         frames.append(df)
         age = end_age
         year += len(df)
+
+    # 2. Post-Retirement Phase (Optional)
+    if post_retirement_years > 0:
+        # Use Phase 3 (safest) allocation for retirement phase
+        phase_cfg = user["ira_phases"]["phase_3"]
+        
+        df, balance = _project_ira_phase(
+            start_balance=balance,
+            start_age=age,
+            end_age=age + post_retirement_years,
+            start_year=year,
+            allocation=phase_cfg["allocation"],
+            beneficiary=beneficiary,
+            phase_label="Phase 3",
+            contribute=False,  # No contributions in retirement
+        )
+        frames.append(df)
 
     if not frames:
         return DataFrame()
