@@ -4,6 +4,7 @@
       "name": "Steven",
       "age": 29,
       "retirement_age": 65,
+      "withdrawal_pct": null,
       "current_401k_balance": 60000,
       "contribution_details": {
         "annual_salary": 135000,
@@ -80,6 +81,7 @@
       "name": "Alyssa",
       "age": 32,
       "retirement_age": 65,
+      "withdrawal_pct": null,
       "current_401k_balance": 95000,
       "contribution_details": {
         "annual_salary": 110000,

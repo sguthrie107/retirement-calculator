@@ -13,16 +13,19 @@ from .plan_by_age import calculate_annualized_return
 from .ira import calculate_ira_annualized_return
 
 
-def merge_projections(df_401k: DataFrame, df_ira: DataFrame) -> DataFrame:
+def merge_projections(df_401k: DataFrame, df_ira: DataFrame, withdrawal_pct: float = 0.06, current_year: int = 2026) -> DataFrame:
     """
     Merge 401k and IRA projections into a unified DataFrame by year and age.
+    Apply withdrawals for Phase 3 rows (retirement phase).
     
     Args:
         df_401k: 401k projection DataFrame
         df_ira: IRA projection DataFrame
+        withdrawal_pct: Withdrawal rate to apply in Phase 3 (default 6%)
+        current_year: Current year for inflation adjustment (default 2026)
         
     Returns:
-        Merged DataFrame with columns for both account types and totals
+        Merged DataFrame with columns for both account types, totals, and withdrawals
     """
     if df_401k.empty and df_ira.empty:
         return DataFrame()
@@ -51,15 +54,52 @@ def merge_projections(df_401k: DataFrame, df_ira: DataFrame) -> DataFrame:
         axis=1
     )
     
+    # Apply withdrawals for Phase 3 (retirement phase)
+    merged["withdrawal"] = 0.0
+    merged["withdrawal_inflation_adjusted"] = 0.0
+    phase_3_mask = merged["phase_display"] == "Phase 3"
+    
+    if phase_3_mask.any():
+        # Calculate withdrawal amount for Phase 3 rows
+        withdrawal_amounts = merged.loc[phase_3_mask, "total_balance"] * withdrawal_pct
+        merged.loc[phase_3_mask, "withdrawal"] = withdrawal_amounts
+        
+        # Calculate inflation-adjusted withdrawal (in current_year dollars, 3% annual inflation)
+        inflation_factor = merged.loc[phase_3_mask, "year"].apply(
+            lambda year: (1.03 ** (year - current_year))
+        )
+        merged.loc[phase_3_mask, "withdrawal_inflation_adjusted"] = (
+            withdrawal_amounts / inflation_factor
+        ).values
+        
+        # Apply withdrawals to balances (401k first, then IRA)
+        for idx in merged[phase_3_mask].index:
+            withdrawal_amount = merged.loc[idx, "withdrawal"]
+            
+            # First, withdraw from 401k
+            if merged.loc[idx, "balance"] > 0:
+                amount_from_401k = min(merged.loc[idx, "balance"], withdrawal_amount)
+                merged.loc[idx, "balance"] -= amount_from_401k
+                withdrawal_amount -= amount_from_401k
+            
+            # If needed, withdraw from IRA
+            if withdrawal_amount > 0 and merged.loc[idx, "ira_balance"] > 0:
+                amount_from_ira = min(merged.loc[idx, "ira_balance"], withdrawal_amount)
+                merged.loc[idx, "ira_balance"] -= amount_from_ira
+            
+            # Recalculate total balance after withdrawal
+            merged.loc[idx, "total_balance"] = merged.loc[idx, "balance"] + merged.loc[idx, "ira_balance"]
+    
     return merged
 
 
-def prepare_unified_display_data(merged: DataFrame) -> List[Dict[str, Any]]:
+def prepare_unified_display_data(merged: DataFrame, current_year: int = 2026) -> List[Dict[str, Any]]:
     """
     Convert merged projection DataFrame into display-ready format.
     
     Args:
         merged: Output from merge_projections()
+        current_year: Current year for inflation adjustment label (default 2026)
         
     Returns:
         List of dictionaries ready for tabulate display
@@ -77,6 +117,8 @@ def prepare_unified_display_data(merged: DataFrame) -> List[Dict[str, Any]]:
             "401k Balance": row["balance"],
             "IRA Balance": row["ira_balance"],
             "Contributions": row["total_contributions"],
+            "Withdrawals": row["withdrawal"],
+            f"Withdrawals({current_year})": row["withdrawal_inflation_adjusted"],
         })
     
     return display_data

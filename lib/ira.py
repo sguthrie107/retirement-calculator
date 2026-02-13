@@ -213,6 +213,7 @@ def retirement_ira_full_plan(
     beneficiary: str,
     current_year: int = None,
     post_retirement_years: int = 0,
+    withdrawal_pct: float = None,
 ) -> DataFrame:
     """
     Run a complete 3-phase IRA projection for a stored user.
@@ -224,6 +225,7 @@ def retirement_ira_full_plan(
         beneficiary:           Name of user in users.json
         current_year:          Override starting calendar year
         post_retirement_years: Number of years to project after retirement (0 contributions)
+        withdrawal_pct:        Override withdrawal rate (uses user's setting if None)
 
     Returns:
         Single DataFrame spanning all phases from current age to retirement (+ post-retirement)
@@ -233,6 +235,10 @@ def retirement_ira_full_plan(
 
     user = _load_user_ira_data(beneficiary)
     retirement_age = user.get("retirement_age", 65)
+    
+    # Use provided withdrawal_pct or get from user data, default to 6%
+    if withdrawal_pct is None:
+        withdrawal_pct = user.get("withdrawal_pct") or 0.06
 
     balance = user["current_ira_balance"]
     age = user["age"]

@@ -19,6 +19,7 @@ Usage:
     python calculate.py
 """
 
+from datetime import date
 import pandas as pd
 from tabulate import tabulate
 
@@ -96,6 +97,8 @@ def _display_projection(df: pd.DataFrame) -> None:
 def _display_unified_projection(
     df_401k: pd.DataFrame,
     df_ira: pd.DataFrame,
+    withdrawal_pct: float = 0.06,
+    current_year: int = 2026,
 ) -> None:
     """Display a unified table with both 401k and IRA data merged by year."""
     if df_401k.empty and df_ira.empty:
@@ -103,8 +106,8 @@ def _display_unified_projection(
         return
 
     # Get merged data and summary from library
-    merged = merge_projections(df_401k, df_ira)
-    display_data = prepare_unified_display_data(merged)
+    merged = merge_projections(df_401k, df_ira, withdrawal_pct, current_year)
+    display_data = prepare_unified_display_data(merged, current_year)
     summary = calculate_summary_statistics(df_401k, df_ira)
     
     beneficiary = summary["beneficiary"]
@@ -117,6 +120,8 @@ def _display_unified_projection(
         row["401k Balance"] = ui.format_currency(row["401k Balance"])
         row["IRA Balance"] = ui.format_currency(row["IRA Balance"])
         row["Contributions"] = ui.format_currency(row["Contributions"])
+        row["Withdrawals"] = ui.format_currency(row["Withdrawals"])
+        row[f"Withdrawals({current_year})"] = ui.format_currency(row[f"Withdrawals({current_year})"])
     
     ui.print_data_panel(
         f"RETIREMENT PROJECTION: {beneficiary} (Ages {start_age} to {end_age})",
@@ -165,6 +170,9 @@ def main() -> None:
     # Display the control panel header
     ui.print_header()
     
+    # Get the current year for inflation calculations
+    current_year = date.today().year
+    
     # Main menu
     ui.print_section("SYSTEM SELECTION")
     mode = ui.input_choice(
@@ -197,7 +205,7 @@ def main() -> None:
             post_retirement_years=post_ret_years
         )
 
-        _display_unified_projection(df_401k, df_ira)
+        _display_unified_projection(df_401k, df_ira, current_year=current_year)
     else:
         ui.print_input_panel("PERSONAL & FINANCIAL DATA")
         
@@ -231,6 +239,7 @@ def main() -> None:
             starting_balance=balance,
             fund_provider=provider,
             post_retirement_years=post_ret_years,
+            withdrawal_pct=0.06,
         )
         _display_projection(df)
 

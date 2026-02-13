@@ -457,6 +457,7 @@ def retirement_401k_full_plan(
     beneficiary: str,
     current_year: int = None,
     post_retirement_years: int = 0,
+    withdrawal_pct: float = None,
 ) -> DataFrame:
     """
     Run a complete 3-phase 401k projection for a stored user.
@@ -468,9 +469,11 @@ def retirement_401k_full_plan(
         beneficiary:           Name of user in users.json
         current_year:          Override starting calendar year
         post_retirement_years: Number of years to project after retirement (0 contributions)
+        withdrawal_pct:        Override withdrawal rate (uses user's setting if None)
 
     Returns:
         Single DataFrame spanning all phases from current age to retirement (+ post-retirement)
+        Includes withdrawal tracking in Phase 3
     """
     if current_year is None:
         current_year = date.today().year
@@ -478,6 +481,10 @@ def retirement_401k_full_plan(
     user = _load_user_data(beneficiary)
     contrib = user["contribution_details"]
     retirement_age = user.get("retirement_age", 65)
+    
+    # Use provided withdrawal_pct or get from user data, default to 6%
+    if withdrawal_pct is None:
+        withdrawal_pct = user.get("withdrawal_pct") or 0.06
 
     balance = user["current_401k_balance"]
     salary = contrib["annual_salary"]
@@ -557,6 +564,7 @@ def retirement_401k_custom_plan(
     fund_provider: str = "Vanguard",
     current_year: int = None,
     post_retirement_years: int = 0,
+    withdrawal_pct: float = 0.06,
 ) -> DataFrame:
     """
     Run a 401k projection with manually-supplied inputs.
@@ -577,9 +585,11 @@ def retirement_401k_custom_plan(
         fund_provider:         'Vanguard' or 'Fidelity'
         current_year:          Override starting calendar year
         post_retirement_years: Number of years to project after retirement (0 contributions)
+        withdrawal_pct:        Withdrawal rate in retirement (default 6%)
 
     Returns:
         DataFrame with year-by-year projections across all phases
+        Includes withdrawal tracking for Phase 3
     """
     if current_year is None:
         current_year = date.today().year
