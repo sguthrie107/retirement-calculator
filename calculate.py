@@ -26,11 +26,16 @@ from tabulate import tabulate
 from lib.plan_by_age import (
     retirement_401k_full_plan,
     retirement_401k_custom_plan,
-    calculate_annualized_return,
 )
 from lib.ira import (
     retirement_ira_full_plan,
-    calculate_ira_annualized_return,
+)
+from lib.display_utils import (
+    merge_projections,
+    prepare_unified_display_data,
+    calculate_summary_statistics,
+    prepare_401k_display_data,
+    calculate_401k_summary,
 )
 
 
@@ -90,31 +95,28 @@ def _display_projection(df: pd.DataFrame) -> None:
         print("\n  No projection data — check age and retirement age inputs.\n")
         return
 
-    beneficiary = df['beneficiary'].iloc[0]
-    start_age = int(df['age'].iloc[0])
-    end_age = int(df['age'].iloc[-1])
+    # Get display data and summary from library
+    display_data = prepare_401k_display_data(df)
+    summary = calculate_401k_summary(df)
+    
+    beneficiary = summary["beneficiary"]
+    start_age = summary["start_age"]
+    end_age = summary["end_age"]
 
-    # Prepare data for display
-    display_data = []
-    for idx, row in df.iterrows():
-        display_data.append({
-            "Age": int(row['age']),
-            "Year": int(row['year']),
-            "Phase": row.get('phase', 'N/A'),
-            "Salary": _format_currency(row['salary']),
-            "Employee Contrib": _format_currency(row['employee_contribution']),
-            "Employer Match": _format_currency(row['employer_match']),
-            "Dividend Income": _format_currency(row.get('dividend_income', 0)),
-            "Price Appreciation": _format_currency(row.get('price_appreciation', 0)),
-            "Balance": _format_currency(row['balance']),
-        })
+    # Format currency values for display
+    for row in display_data:
+        row["Salary"] = _format_currency(row["Salary"])
+        row["Employee Contrib"] = _format_currency(row["Employee Contrib"])
+        row["Employer Match"] = _format_currency(row["Employer Match"])
+        row["Dividend Income"] = _format_currency(row["Dividend Income"])
+        row["Price Appreciation"] = _format_currency(row["Price Appreciation"])
+        row["Balance"] = _format_currency(row["Balance"])
 
     print()
     print("=" * 160)
     print(f"  401K PROJECTION: {beneficiary} (Ages {start_age} to {end_age})")
     print("=" * 160)
     
-    # Use tabulate to create an Excel-like table
     table_output = tabulate(
         display_data,
         headers="keys",
@@ -125,87 +127,17 @@ def _display_projection(df: pd.DataFrame) -> None:
     print("=" * 160)
 
     # Summary statistics
-    final_balance = df["balance"].iloc[-1]
-    total_contributions = df["total_contribution"].sum()
-    total_growth = df["growth"].sum()
-    total_employee = df["employee_contribution"].sum()
-    total_employer = df["employer_match"].sum()
-    annualized_return = calculate_annualized_return(df)
-
     summary_data = [
-        ["Final Balance at Age " + str(end_age), _format_currency(final_balance)],
-        ["Total Employee Contributions", _format_currency(total_employee)],
-        ["Total Employer Match", _format_currency(total_employer)],
-        ["Total Contributions", _format_currency(total_contributions)],
-        ["Total Investment Growth", _format_currency(total_growth)],
-        ["Average Annualized Return", f"{annualized_return * 100:.2f}%"],
+        ["Final Balance at Age " + str(end_age), _format_currency(summary["final_balance"])],
+        ["Total Employee Contributions", _format_currency(summary["total_employee"])],
+        ["Total Employer Match", _format_currency(summary["total_employer"])],
+        ["Total Contributions", _format_currency(summary["total_contributions"])],
+        ["Total Investment Growth", _format_currency(summary["total_growth"])],
+        ["Average Annualized Return", f"{summary['annualized_return'] * 100:.2f}%"],
     ]
 
     print()
     print("  401K SUMMARY STATISTICS")
-    print("  " + "=" * 70)
-    summary_output = tabulate(
-        summary_data,
-        tablefmt="plain",
-        floatfmt=".2f",
-    )
-    for line in summary_output.split('\n'):
-        print("  " + line)
-    print("  " + "=" * 70)
-    print()
-
-
-def _display_ira_projection(df: pd.DataFrame) -> None:
-    """Pretty-print the IRA projection DataFrame as an Excel-like table."""
-    if df.empty:
-        print("\n  No IRA projection data.\n")
-        return
-
-    beneficiary = df['beneficiary'].iloc[0]
-    start_age = int(df['age'].iloc[0])
-    end_age = int(df['age'].iloc[-1])
-
-    display_data = []
-    for idx, row in df.iterrows():
-        display_data.append({
-            "Age": int(row['age']),
-            "Year": int(row['year']),
-            "Phase": row.get('phase', 'N/A'),
-            "IRA Contribution": _format_currency(row['ira_contribution']),
-            "Dividend Income": _format_currency(row.get('dividend_income', 0)),
-            "Price Appreciation": _format_currency(row.get('price_appreciation', 0)),
-            "IRA Balance": _format_currency(row['ira_balance']),
-        })
-
-    print()
-    print("=" * 130)
-    print(f"  IRA PROJECTION: {beneficiary} (Ages {start_age} to {end_age})")
-    print("=" * 130)
-
-    table_output = tabulate(
-        display_data,
-        headers="keys",
-        tablefmt="grid",
-        floatfmt=".2f",
-    )
-    print(table_output)
-    print("=" * 130)
-
-    # IRA summary
-    final_balance = df["ira_balance"].iloc[-1]
-    total_contributions = df["ira_contribution"].sum()
-    total_growth = df["growth"].sum()
-    annualized_return = calculate_ira_annualized_return(df)
-
-    summary_data = [
-        ["Final IRA Balance at Age " + str(end_age), _format_currency(final_balance)],
-        ["Total IRA Contributions", _format_currency(total_contributions)],
-        ["Total Investment Growth", _format_currency(total_growth)],
-        ["Average Annualized Return", f"{annualized_return * 100:.2f}%"],
-    ]
-
-    print()
-    print("  IRA SUMMARY STATISTICS")
     print("  " + "=" * 70)
     summary_output = tabulate(
         summary_data,
@@ -227,51 +159,21 @@ def _display_unified_projection(
         print("\n  No projection data available.\n")
         return
 
-    beneficiary = (
-        df_401k["beneficiary"].iloc[0]
-        if not df_401k.empty
-        else df_ira["beneficiary"].iloc[0]
-    )
+    # Get merged data and summary from library
+    merged = merge_projections(df_401k, df_ira)
+    display_data = prepare_unified_display_data(merged)
+    summary = calculate_summary_statistics(df_401k, df_ira)
     
-    # Merge on year and age
-    merged = pd.merge(
-        df_401k[["year", "age", "phase", "balance", "total_contribution"]],
-        df_ira[["year", "age", "phase", "ira_balance", "ira_contribution"]],
-        on=["year", "age"],
-        how="outer",
-        suffixes=("_401k", "_ira")
-    ).fillna(0)
+    beneficiary = summary["beneficiary"]
+    start_age = summary["start_age"]
+    end_age = summary["end_age"]
     
-    # Sort by year
-    merged = merged.sort_values("year").reset_index(drop=True)
-    
-    start_age = int(merged["age"].iloc[0])
-    end_age = int(merged["age"].iloc[-1])
-    
-    # Prepare display data
-    display_data = []
-    for _, row in merged.iterrows():
-        bal_401k = row["balance"]
-        bal_ira = row["ira_balance"]
-        contrib_401k = row["total_contribution"]
-        contrib_ira = row["ira_contribution"]
-        total_balance = bal_401k + bal_ira
-        total_contrib = contrib_401k + contrib_ira
-        
-        # Get phase (prefer 401k phase if both exist)
-        phase = row.get("phase_401k", row.get("phase_ira", "N/A"))
-        if phase == 0 or phase == "":
-            phase = row.get("phase_ira", "N/A")
-        
-        display_data.append({
-            "Age": int(row["age"]),
-            "Year": int(row["year"]),
-            "Phase": phase,
-            "Total Balance": _format_currency(total_balance),
-            "401k Balance": _format_currency(bal_401k),
-            "IRA Balance": _format_currency(bal_ira),
-            "Contributions": _format_currency(total_contrib),
-        })
+    # Format currency values for display
+    for row in display_data:
+        row["Total Balance"] = _format_currency(row["Total Balance"])
+        row["401k Balance"] = _format_currency(row["401k Balance"])
+        row["IRA Balance"] = _format_currency(row["IRA Balance"])
+        row["Contributions"] = _format_currency(row["Contributions"])
     
     print()
     print("=" * 130)
@@ -288,33 +190,21 @@ def _display_unified_projection(
     print("=" * 130)
     
     # Summary statistics
-    final_401k = df_401k["balance"].iloc[-1] if not df_401k.empty else 0
-    final_ira = df_ira["ira_balance"].iloc[-1] if not df_ira.empty else 0
-    combined = final_401k + final_ira
-    
-    total_401k_contribs = df_401k["total_contribution"].sum() if not df_401k.empty else 0
-    total_ira_contribs = df_ira["ira_contribution"].sum() if not df_ira.empty else 0
-    total_401k_growth = df_401k["growth"].sum() if not df_401k.empty else 0
-    total_ira_growth = df_ira["growth"].sum() if not df_ira.empty else 0
-    
-    annualized_401k = calculate_annualized_return(df_401k) if not df_401k.empty else 0
-    annualized_ira = calculate_ira_annualized_return(df_ira) if not df_ira.empty else 0
-    
     summary_data = [
-        ["Final 401k Balance", _format_currency(final_401k)],
-        ["Final IRA Balance", _format_currency(final_ira)],
-        ["Combined Balance at Age " + str(end_age), _format_currency(combined)],
+        ["Final 401k Balance", _format_currency(summary["final_401k"])],
+        ["Final IRA Balance", _format_currency(summary["final_ira"])],
+        ["Combined Balance at Age " + str(end_age), _format_currency(summary["combined_balance"])],
         ["", ""],
-        ["Total 401k Contributions", _format_currency(total_401k_contribs)],
-        ["Total IRA Contributions", _format_currency(total_ira_contribs)],
-        ["Total Contributions (All)", _format_currency(total_401k_contribs + total_ira_contribs)],
+        ["Total 401k Contributions", _format_currency(summary["total_401k_contributions"])],
+        ["Total IRA Contributions", _format_currency(summary["total_ira_contributions"])],
+        ["Total Contributions (All)", _format_currency(summary["total_contributions"])],
         ["", ""],
-        ["Total 401k Growth", _format_currency(total_401k_growth)],
-        ["Total IRA Growth", _format_currency(total_ira_growth)],
-        ["Total Growth (All)", _format_currency(total_401k_growth + total_ira_growth)],
+        ["Total 401k Growth", _format_currency(summary["total_401k_growth"])],
+        ["Total IRA Growth", _format_currency(summary["total_ira_growth"])],
+        ["Total Growth (All)", _format_currency(summary["total_growth"])],
         ["", ""],
-        ["401k Annualized Return", f"{annualized_401k * 100:.2f}%"],
-        ["IRA Annualized Return", f"{annualized_ira * 100:.2f}%"],
+        ["401k Annualized Return", f"{summary['annualized_401k'] * 100:.2f}%"],
+        ["IRA Annualized Return", f"{summary['annualized_ira'] * 100:.2f}%"],
     ]
     
     print()
