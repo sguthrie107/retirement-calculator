@@ -112,7 +112,7 @@ def prepare_unified_display_data(merged: DataFrame, current_year: int = 2026) ->
         display_data.append({
             "Age": int(row["age"]),
             "Year": int(row["year"]),
-            "Phase": row["phase_display"],
+            "Strategy": row["phase_display"],
             "Total Balance": row["total_balance"],
             "401k Balance": row["balance"],
             "IRA Balance": row["ira_balance"],
@@ -223,7 +223,7 @@ def prepare_401k_display_data(df: DataFrame) -> List[Dict[str, Any]]:
         display_data.append({
             "Age": int(row['age']),
             "Year": int(row['year']),
-            "Phase": row.get('phase', 'N/A'),
+            "Strategy": row.get('phase', 'N/A'),
             "Salary": row['salary'],
             "Employee Contrib": row['employee_contribution'],
             "Employer Match": row['employer_match'],

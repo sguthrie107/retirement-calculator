@@ -229,9 +229,9 @@ def _project_phase(
     current_salary = salary
     years_since_rebalance = 0
 
-    for i in range(end_age - start_age):
+    for i in range(end_age - start_age + 1):
         year = start_year + i
-        age = start_age + i + 1
+        age = start_age + i
 
         employee_contrib = current_salary * contribution_pct
         employer_match = current_salary * match_pct

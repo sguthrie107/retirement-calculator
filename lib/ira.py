@@ -175,9 +175,9 @@ def _project_ira_phase(
     rows: List[Dict[str, Any]] = []
     balance = start_balance
 
-    for i in range(end_age - start_age):
+    for i in range(end_age - start_age + 1):
         year = start_year + i
-        age = start_age + i + 1
+        age = start_age + i
 
         # Lump-sum contribution at beginning of year (if enabled)
         contribution = get_ira_contribution_limit(year) if contribute else 0.0
