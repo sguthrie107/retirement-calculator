@@ -26,7 +26,13 @@ async def get_comparison(username: str, db: Session = Depends(get_db)):
         ComparisonResponse with projected, actual, and delta data
     """
     try:
+        print(f"\nDEBUG: API /api/comparison/{username} called")
         data = get_comparison_data(username, db)
+        print(f"DEBUG: Comparison data retrieved for {username}")
+        print(f"DEBUG: Number of deltas: {len(data.get('deltas', []))}")
+        if data.get('deltas'):
+            print(f"DEBUG: First delta keys: {data['deltas'][0].keys()}")
+            print(f"DEBUG: First delta: {data['deltas'][0]}")
         return data
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

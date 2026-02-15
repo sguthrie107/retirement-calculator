@@ -5,6 +5,10 @@
 {% endblock %}
 
 {% block content %}
+<div class="chart-container">
+    <canvas id="retirementChart"></canvas>
+</div>
+
 <div class="dashboard-controls">
     <div class="control-group">
         <label for="userSelect">Select User:</label>
@@ -24,10 +28,6 @@
     </div>
 </div>
 
-<div class="chart-container">
-    <canvas id="retirementChart"></canvas>
-</div>
-
 <div id="deltaTable" class="delta-section">
     <h2>Performance Comparison</h2>
     <div id="deltaContent">
@@ -42,21 +42,20 @@
         <h2>Add Actual Balance</h2>
         <form id="balanceForm" onsubmit="submitBalance(event)">
             <div class="form-group">
-                <label for="accountType">Account Type:</label>
-                <select id="accountType" required>
-                    <option value="401k">401k</option>
-                    <option value="roth_ira">Roth IRA</option>
+                <label for="year">Year:</label>
+                <select id="year" required>
+                    <option value="">-- Select a year --</option>
                 </select>
             </div>
             
             <div class="form-group">
-                <label for="year">Year:</label>
-                <input type="number" id="year" min="2000" max="2100" value="{{ current_year }}" required>
+                <label for="balance401k">401k Balance ($):</label>
+                <input type="number" id="balance401k" min="0" step="0.01">
             </div>
             
             <div class="form-group">
-                <label for="balance">Balance ($):</label>
-                <input type="number" id="balance" min="0" step="0.01" required>
+                <label for="balanceIRA">Roth IRA Balance ($):</label>
+                <input type="number" id="balanceIRA" min="0" step="0.01">
             </div>
             
             <div class="form-group">
@@ -72,17 +71,95 @@
     </div>
 </div>
 
+<!-- Edit balance modal -->
+<div id="editBalanceModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideEditBalanceForm()">&times;</span>
+        <h2>Edit Balance Entry</h2>
+        <form id="editBalanceForm" onsubmit="submitEditBalance(event)">
+            <div class="form-group">
+                <label for="editYear">Year:</label>
+                <input type="number" id="editYear" min="2000" max="2100" disabled>
+            </div>
+            
+            <div id="balanceFieldsContainer">
+                <!-- Will be populated dynamically based on number of balance IDs -->
+            </div>
+            
+            <div class="form-group">
+                <label for="editNotes">Notes (optional):</label>
+                <textarea id="editNotes" rows="2"></textarea>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Update</button>
+                <button type="button" class="btn-secondary" onclick="hideEditBalanceForm()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/js/chart.js"></script>
 <script>
-    // Initialize on page load
-    window.addEventListener('DOMContentLoaded', () => {
-        const selectedUser = '{{ selected_user }}';
-        if (selectedUser && selectedUser !== 'None') {
-            loadUserData();
+    // Embed initial data from server
+    const initialData = {{ initial_data | tojson | safe }};
+    const selectedUserInit = '{{ selected_user }}';
+    
+    function renderInitialData() {
+        try {
+            const deltaContent = document.getElementById('deltaContent');
+            const chartElement = document.getElementById('retirementChart');
+            
+            if (!initialData) {
+                if (deltaContent) deltaContent.innerHTML = '<p style="color: red;">ERROR: No data from server</p>';
+                return;
+            }
+            
+            if (!selectedUserInit) {
+                if (deltaContent) deltaContent.innerHTML = '<p style="color: red;">ERROR: No user selected</p>';
+                return;
+            }
+            
+            if (!chartElement) {
+                if (deltaContent) deltaContent.innerHTML = '<p style="color: red;">ERROR: Chart element not found</p>';
+                return;
+            }
+            
+            // Set dropdown value
+            const userSelect = document.getElementById('userSelect');
+            if (userSelect) {
+                userSelect.value = selectedUserInit;
+            }
+            
+            // Show UI elements
+            const addBalanceBtn = document.getElementById('addBalanceBtn');
+            const deltaTable = document.getElementById('deltaTable');
+            if (addBalanceBtn) addBalanceBtn.style.display = 'inline-block';
+            if (deltaTable) deltaTable.style.display = 'block';
+            
+            // Render chart and table
+            renderSingleUserChart(selectedUserInit, initialData);
+            renderDeltaTable(initialData.deltas);
+        } catch (error) {
+            const deltaContent = document.getElementById('deltaContent');
+            if (deltaContent) {
+                deltaContent.innerHTML = '<p style="color: red;">Error: ' + error.message + '</p>';
+            }
         }
-    });
+    }
+    
+    // Render on load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderInitialData);
+    } else {
+        renderInitialData();
+    }
+    
+    // Multiple timeouts to ensure it runs
+    setTimeout(renderInitialData, 50);
+    setTimeout(renderInitialData, 200);
 </script>
 {% endblock %}

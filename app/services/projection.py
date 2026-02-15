@@ -20,7 +20,7 @@ def get_user_projection(username: str, current_year: int = 2026) -> dict:
         current_year: Current year for calculations
         
     Returns:
-        Dict with 'projected' list of {year, balance} dicts
+        Dict with 'projected' list of {year, balance, account_balances} dicts
     """
     try:
         # Run existing calculator engine
@@ -33,11 +33,28 @@ def get_user_projection(username: str, current_year: int = 2026) -> dict:
         if merged.empty:
             return {"projected": []}
         
-        # Convert to list of dicts for JSON serialization
-        projected = [
-            {"year": int(row["year"]), "balance": round(float(row["total_balance"]), 2)}
-            for _, row in merged.iterrows()
-        ]
+        # Build 401k and IRA lookup tables from individual projections
+        df_401k_lookup = df_401k.set_index('year') if not df_401k.empty else pd.DataFrame()
+        df_ira_lookup = df_ira.set_index('year') if not df_ira.empty else pd.DataFrame()
+        
+        # Convert to list of dicts with account breakdown
+        projected = []
+        for _, row in merged.iterrows():
+            year = int(row["year"])
+            total_balance = round(float(row["total_balance"]), 2)
+            
+            # Get account balances for this year
+            account_balances = {}
+            if year in df_401k_lookup.index:
+                account_balances['401k'] = round(float(df_401k_lookup.loc[year, 'balance']), 2)
+            if year in df_ira_lookup.index:
+                account_balances['roth_ira'] = round(float(df_ira_lookup.loc[year, 'ira_balance']), 2)
+            
+            projected.append({
+                "year": year,
+                "balance": total_balance,
+                "account_balances": account_balances
+            })
         
         return {"projected": projected}
     except Exception as e:

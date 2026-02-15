@@ -20,10 +20,23 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     projection_data = get_user_projection(username, current_year)
     projected = projection_data["projected"]
     
+    # Merge projected account_balances with actual account_balances
+    # Create a merged account_balances map for ALL years
+    all_account_balances = {}
+    
+    # First, populate with projected data
+    for p in projected:
+        year = p["year"]
+        all_account_balances[year] = p.get("account_balances", {}).copy()
+    
     # Get actual balances from database
     user = db.query(User).filter(User.name == username).first()
     
     actual = []
+    balance_id_map = {}  # Maps (year) -> list of balance IDs
+    timestamp_map = {}  # Maps (year) -> most recent timestamp
+    account_balances_map = {}  # Maps (year) -> {account_type: balance}
+    
     if user:
         # Get all actual balances for this user across all accounts
         actuals_401k = (
@@ -42,18 +55,53 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
             .all()
         )
         
-        # Combine 401k + IRA by year
+        # Combine 401k + IRA by year, tracking separate balances
         actual_by_year = {}
         for ab in actuals_401k + actuals_ira:
-            actual_by_year[ab.year] = actual_by_year.get(ab.year, 0) + ab.balance
+            year = ab.year
+            actual_by_year[year] = actual_by_year.get(year, 0) + ab.balance
+            
+            # Track account-specific balance
+            if year not in account_balances_map:
+                account_balances_map[year] = {}
+            account_balances_map[year][ab.account.account_type] = round(ab.balance, 2)
+            
+            # Track balance IDs for this year
+            if year not in balance_id_map:
+                balance_id_map[year] = []
+            balance_id_map[year].append(ab.id)
+            # Track the most recent timestamp for this year
+            if year not in timestamp_map or ab.recorded_at > timestamp_map[year]:
+                timestamp_map[year] = ab.recorded_at
         
         actual = [
-            {"year": year, "balance": round(balance, 2)}
+            {
+                "year": year, 
+                "balance": round(balance, 2), 
+                "balance_ids": [int(bid) for bid in balance_id_map.get(year, [])], 
+                "timestamp": timestamp_map.get(year),
+                "account_balances": account_balances_map.get(year, {})
+            }
             for year, balance in sorted(actual_by_year.items())
         ]
+        
+        # Merge actual account balances into the all_account_balances map
+        for year, acct_bal in account_balances_map.items():
+            all_account_balances[year] = acct_bal
+    
+    # Update projected list to use merged account_balances
+    for p in projected:
+        p["account_balances"] = all_account_balances.get(p["year"], p.get("account_balances", {}))
+    
+    # Debug logging
+    print(f"DEBUG comparison.py: account_balances_map = {account_balances_map}")
+    print(f"DEBUG comparison.py: actual data = {actual}")
     
     # Compute deltas where we have both actual and projected
     deltas = compute_deltas(projected, actual)
+    
+    print(f"DEBUG comparison.py: User {username} - actual data: {actual}")
+    print(f"DEBUG comparison.py: Deltas computed: {deltas}")
     
     return {
         "projected": projected,
@@ -65,27 +113,55 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
 def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
     """
     Get projections for all users to compare side-by-side.
+    All projections are padded to the same end year for uniform comparison.
     
     Args:
         db: Database session
         current_year: Current year for projections
         
     Returns:
-        Dict with 'users' list containing {username, projected} for each user
+        Dict with 'users' list containing {username, projected} for each user.
+        All projections extended to same end year with null values for padding.
     """
     users = db.query(User).all()
     
     users_data = []
+    max_year = 0
+    
+    # First pass: get all projections and find max year
+    all_projections = []
     for user in users:
         try:
             projection_data = get_user_projection(user.name, current_year)
-            users_data.append({
+            projected = projection_data["projected"]
+            all_projections.append({
                 "username": user.name,
-                "projected": projection_data["projected"]
+                "projected": projected
             })
+            # Track the maximum year across all users
+            if projected:
+                max_year = max(max_year, max(p["year"] for p in projected))
         except Exception:
             # Skip users that can't be projected
             continue
+    
+    # Second pass: pad all projections to max_year
+    for user_proj in all_projections:
+        projected = user_proj["projected"]
+        
+        if projected and max_year > 0:
+            # Create a set of years that already have data
+            existing_years = {p["year"] for p in projected}
+            
+            # Add null entries for missing years from max year of this user to max_year
+            last_year = max(p["year"] for p in projected)
+            for year in range(last_year + 1, max_year + 1):
+                projected.append({"year": year, "balance": None})
+            
+            # Sort by year
+            projected.sort(key=lambda x: x["year"])
+        
+        users_data.append(user_proj)
     
     return {"users": users_data}
 
@@ -96,10 +172,10 @@ def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
     
     Args:
         projected: List of {year, balance} dicts
-        actual: List of {year, balance} dicts
+        actual: List of {year, balance, balance_ids, timestamp, account_balances} dicts
         
     Returns:
-        List of delta dicts with year, projected, actual, delta, delta_pct
+        List of delta dicts with year, projected, actual, delta, delta_pct, balance_ids, timestamp, account_balances
     """
     proj_by_year = {p["year"]: p["balance"] for p in projected}
     deltas = []
@@ -118,6 +194,9 @@ def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
                 "actual": round(actual_bal, 2),
                 "delta": round(diff, 2),
                 "delta_pct": round(pct, 2),
+                "balance_ids": a.get("balance_ids", []),
+                "timestamp": a.get("timestamp"),
+                "account_balances": a.get("account_balances", {}),
             })
     
     return deltas

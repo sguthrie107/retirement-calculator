@@ -89,20 +89,51 @@ async def get_balances(username: str, db: Session = Depends(get_db)):
     return balances
 
 
+@router.get("/record/{balance_id}", response_model=dict)
+async def get_single_balance(balance_id: int, db: Session = Depends(get_db)):
+    """Get a single balance record by ID with account type."""
+    balance = db.query(ActualBalance).filter(ActualBalance.id == balance_id).first()
+    if not balance:
+        raise HTTPException(status_code=404, detail="Balance not found")
+    
+    account = db.query(Account).filter(Account.id == balance.account_id).first()
+    account_type = account.account_type if account else "unknown"
+    
+    return {
+        "id": balance.id,
+        "account_id": balance.account_id,
+        "account_type": account_type,
+        "year": balance.year,
+        "balance": balance.balance,
+        "notes": balance.notes,
+        "recorded_at": balance.recorded_at,
+    }
+
+
 @router.put("/{balance_id}", response_model=BalanceResponse)
 async def update_balance(
     balance_id: int,
     balance_data: BalanceUpdate,
     db: Session = Depends(get_db)
 ):
-    """Update an existing balance entry."""
+    """Update an existing balance entry. Only updates timestamp if balance value changed."""
+    from datetime import datetime
+    
     balance = db.query(ActualBalance).filter(ActualBalance.id == balance_id).first()
     if not balance:
         raise HTTPException(status_code=404, detail="Balance not found")
     
+    # Check if balance value actually changed
+    balance_changed = balance.balance != balance_data.balance
+    
+    # Update values
     balance.balance = balance_data.balance
     if balance_data.notes is not None:
         balance.notes = balance_data.notes
+    
+    # Only update timestamp if balance value changed
+    if balance_changed:
+        balance.recorded_at = datetime.utcnow().isoformat()
     
     db.commit()
     db.refresh(balance)
@@ -112,10 +143,14 @@ async def update_balance(
 @router.delete("/{balance_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_balance(balance_id: int, db: Session = Depends(get_db)):
     """Delete a balance entry."""
+    print(f"DEBUG: Delete requested for balance_id: {balance_id}")
     balance = db.query(ActualBalance).filter(ActualBalance.id == balance_id).first()
     if not balance:
+        print(f"DEBUG: Balance not found with id: {balance_id}")
         raise HTTPException(status_code=404, detail="Balance not found")
     
+    print(f"DEBUG: Deleting balance: {balance.id}, year: {balance.year}, amount: {balance.balance}")
     db.delete(balance)
     db.commit()
+    print(f"DEBUG: Balance deleted successfully")
     return None
