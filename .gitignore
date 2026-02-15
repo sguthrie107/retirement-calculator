@@ -131,3 +131,7 @@ Thumbs.db
 *.csv
 output/
 temp/
+
+# Web dashboard
+retirement.db
+*.sqlite
