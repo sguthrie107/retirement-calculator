@@ -62,6 +62,34 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     }
 
 
+def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
+    """
+    Get projections for all users to compare side-by-side.
+    
+    Args:
+        db: Database session
+        current_year: Current year for projections
+        
+    Returns:
+        Dict with 'users' list containing {username, projected} for each user
+    """
+    users = db.query(User).all()
+    
+    users_data = []
+    for user in users:
+        try:
+            projection_data = get_user_projection(user.name, current_year)
+            users_data.append({
+                "username": user.name,
+                "projected": projection_data["projected"]
+            })
+        except Exception:
+            # Skip users that can't be projected
+            continue
+    
+    return {"users": users_data}
+
+
 def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
     """
     Compute dollar and percentage deltas between actual and projected.

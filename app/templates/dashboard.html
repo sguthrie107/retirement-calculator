@@ -9,18 +9,18 @@
     <div class="control-group">
         <label for="userSelect">Select User:</label>
         <select id="userSelect" onchange="loadUserData()">
+            <option value="">-- Select a user --</option>
             {% if users %}
                 {% for user in users %}
                 <option value="{{ user }}" {% if user == selected_user %}selected{% endif %}>{{ user }}</option>
                 {% endfor %}
-            {% else %}
-                <option value="">No users found</option>
             {% endif %}
+            <option value="all">📊 View All Users</option>
         </select>
     </div>
     
     <div class="control-group">
-        <button onclick="showBalanceForm()" class="btn-primary">➕ Add Actual Balance</button>
+        <button onclick="showBalanceForm()" class="btn-primary" id="addBalanceBtn" style="display: none;">➕ Add Actual Balance</button>
     </div>
 </div>
 
