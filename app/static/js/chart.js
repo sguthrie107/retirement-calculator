@@ -165,7 +165,7 @@ function renderSingleUserChart(username, data) {
                 legend: {
                     position: 'top',
                     labels: {
-                        color: '#FFFFFF',
+                        color: '#0F172A',
                         font: { size: 14, weight: '600' },
                         padding: 20,
                         usePointStyle: true,
@@ -173,10 +173,10 @@ function renderSingleUserChart(username, data) {
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(30, 30, 30, 0.95)',
-                    titleColor: '#FFFFFF',
-                    bodyColor: '#B3B3B3',
-                    borderColor: '#2D2D2D',
+                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                    titleColor: '#0F172A',
+                    bodyColor: '#475569',
+                    borderColor: '#E2E8F0',
                     borderWidth: 1,
                     padding: 16,
                     cornerRadius: 12,
@@ -361,7 +361,7 @@ function renderAllUsersChart(usersData) {
                 legend: {
                     position: 'top',
                     labels: {
-                        color: '#FFFFFF',
+                        color: '#0F172A',
                         font: { size: 14, weight: '600' },
                         padding: 20,
                         usePointStyle: true,
@@ -369,10 +369,10 @@ function renderAllUsersChart(usersData) {
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(30, 30, 30, 0.95)',
-                    titleColor: '#FFFFFF',
-                    bodyColor: '#B3B3B3',
-                    borderColor: '#2D2D2D',
+                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                    titleColor: '#0F172A',
+                    bodyColor: '#475569',
+                    borderColor: '#E2E8F0',
                     borderWidth: 1,
                     padding: 16,
                     cornerRadius: 12,
