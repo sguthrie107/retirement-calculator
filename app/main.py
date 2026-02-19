@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .database import init_db
-from .routes import dashboard, projections, balances
+from .routes import dashboard, projections, balances, stress_test
 
 # Get absolute paths
 BASE_DIR = Path(__file__).parent.parent
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, tags=["dashboard"])
     app.include_router(projections.router, tags=["projections"])
     app.include_router(balances.router, tags=["balances"])
+    app.include_router(stress_test.router, tags=["stress-test"])
     
     return app
 

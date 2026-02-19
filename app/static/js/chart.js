@@ -3,12 +3,25 @@
 let chartInstance = null;
 let accountBalancesByYear = {};  // Global variable for tooltip access
 
+if (window.Chart) {
+    Chart.defaults.font.family = 'Montserrat, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    Chart.defaults.color = '#475569';
+}
+
 // Color palette for multiple users
 const userColors = {
     'Steven': { border: '#1E40AF', bg: 'rgba(30, 64, 175, 0.1)' },
     'Alyssa': { border: '#F97316', bg: 'rgba(249, 115, 22, 0.1)' },
     'User3': { border: '#06B6D4', bg: 'rgba(6, 182, 212, 0.1)' },
     'User4': { border: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.1)' },
+};
+
+const stressTierStyles = {
+    5: { color: '#166534', bg: '#DCFCE7', border: '#86EFAC' },
+    4: { color: '#3F6212', bg: '#ECFCCB', border: '#BEF264' },
+    3: { color: '#92400E', bg: '#FEF3C7', border: '#FCD34D' },
+    2: { color: '#9A3412', bg: '#FFEDD5', border: '#FDBA74' },
+    1: { color: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' },
 };
 
 async function loadUserData() {
@@ -23,17 +36,24 @@ async function loadUserData() {
     
     const addBalanceBtn = document.getElementById('addBalanceBtn');
     const deltaTable = document.getElementById('deltaTable');
+    const stressTestSection = document.getElementById('stressTestSection');
     
     // Show/hide balance add button and delta table based on selection
     if (selectedValue === 'all') {
         console.log('Loading all users view');
         addBalanceBtn.style.display = 'none';
         deltaTable.style.display = 'none';
+        if (stressTestSection) {
+            stressTestSection.style.display = 'none';
+        }
         loadAllUsers();
     } else {
         console.log('Loading single user:', selectedValue);
         addBalanceBtn.style.display = 'inline-block';
         deltaTable.style.display = 'block';
+        if (stressTestSection) {
+            stressTestSection.style.display = 'block';
+        }
         loadSingleUser(selectedValue);
     }
 }
@@ -58,6 +78,7 @@ async function loadSingleUser(username) {
         
         renderSingleUserChart(username, data);
         renderDeltaTable(data.deltas);
+        await loadStressTestResult(username);
     } catch (error) {
         console.error('Error loading user data:', error);
         document.getElementById('deltaContent').innerHTML = 
@@ -173,19 +194,29 @@ function renderSingleUserChart(username, data) {
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-                    titleColor: '#0F172A',
-                    bodyColor: '#475569',
-                    borderColor: '#E2E8F0',
+                    backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                    titleColor: '#F8FAFC',
+                    bodyColor: '#E2E8F0',
+                    borderColor: '#334155',
                     borderWidth: 1,
                     padding: 16,
                     cornerRadius: 12,
                     displayColors: true,
+                    usePointStyle: true,
+                    boxPadding: 6,
+                    titleMarginBottom: 10,
+                    bodySpacing: 6,
                     titleFont: { size: 14, weight: '700' },
-                    bodyFont: { size: 13, weight: '500' },
+                    bodyFont: { size: 13, weight: '600' },
                     callbacks: {
                         title: function(context) {
                             return 'Year ' + context[0].label;
+                        },
+                        labelPointStyle: function() {
+                            return {
+                                pointStyle: 'circle',
+                                rotation: 0
+                            };
                         },
                         label: function(context) {
                             let label = context.dataset.label || '';
@@ -369,17 +400,27 @@ function renderAllUsersChart(usersData) {
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-                    titleColor: '#0F172A',
-                    bodyColor: '#475569',
-                    borderColor: '#E2E8F0',
+                    backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                    titleColor: '#F8FAFC',
+                    bodyColor: '#E2E8F0',
+                    borderColor: '#334155',
                     borderWidth: 1,
                     padding: 16,
                     cornerRadius: 12,
                     displayColors: true,
+                    usePointStyle: true,
+                    boxPadding: 6,
+                    titleMarginBottom: 10,
+                    bodySpacing: 6,
                     titleFont: { size: 14, weight: '700' },
-                    bodyFont: { size: 13, weight: '500' },
+                    bodyFont: { size: 13, weight: '600' },
                     callbacks: {
+                        labelPointStyle: function() {
+                            return {
+                                pointStyle: 'circle',
+                                rotation: 0
+                            };
+                        },
                         label: function(context) {
                             let label = context.dataset.label || '';
                             if (label) {
@@ -544,6 +585,176 @@ function formatCurrency(value) {
         currency: 'USD',
         minimumFractionDigits: 0,
     }).format(value);
+}
+
+function formatTimestamp(timestamp) {
+    if (!timestamp) {
+        return '-';
+    }
+
+    try {
+        let isoString = timestamp;
+        if (!isoString.includes('Z') && !isoString.includes('+') && !isoString.includes('-', 10)) {
+            isoString += 'Z';
+        }
+        const date = new Date(isoString);
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+        });
+    } catch (error) {
+        return timestamp;
+    }
+}
+
+async function loadStressTestResult(username) {
+    const stressContent = document.getElementById('stressTestContent');
+    if (!stressContent || !username || username === 'all') {
+        return;
+    }
+
+    stressContent.innerHTML = '<p class="loading">Loading latest stress test...</p>';
+
+    try {
+        const response = await fetch(`/api/stress-test/${username}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const payload = await response.json();
+        renderStressTestResult(payload.result);
+    } catch (error) {
+        stressContent.innerHTML = `<p class="loading" style="color: #F97316;">Unable to load stress test: ${error.message}</p>`;
+    }
+}
+
+function renderStressTestResult(result) {
+    const stressContent = document.getElementById('stressTestContent');
+    if (!stressContent) {
+        return;
+    }
+
+    if (!result) {
+        stressContent.innerHTML = `
+            <div class="stress-empty">
+                <p>No stress test is stored yet for this user.</p>
+                <p>Run <strong>Recalculate Stress Test</strong> to generate a persistent Monte Carlo result.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const probability = Number(result.success_probability_pct || 0);
+    const markerLeft = Math.max(0, Math.min(100, probability));
+    const tier = Number(result.rating_tier || 1);
+    const tierStyle = stressTierStyles[tier] || stressTierStyles[1];
+    const explanation = result.assumptions?.success_definition
+        ? 'Success = portfolio avoids depletion before life expectancy and stays above minimum real threshold.'
+        : 'Monte Carlo estimate based on current assumptions.';
+
+    stressContent.innerHTML = `
+        <div class="stress-card">
+            <div class="stress-card-top">
+                <div class="stress-score">
+                    <span class="stress-score-percent" style="color: ${tierStyle.color};">${probability.toFixed(1)}%</span>
+                    <span class="stress-rating-chip" style="color: ${tierStyle.color}; background: ${tierStyle.bg}; border-color: ${tierStyle.border};">
+                        ${result.rating_grade} · ${result.rating_label}
+                    </span>
+                    <span class="stress-help" title="${explanation}">ⓘ</span>
+                </div>
+            </div>
+
+            <div class="stress-gauge" aria-label="Probability of successful retirement gauge">
+                <div class="stress-gauge-track"></div>
+                <div class="stress-gauge-marker" style="left: ${markerLeft}%;"></div>
+                <div class="stress-ticks">
+                    <span>0%</span>
+                    <span>60%</span>
+                    <span>75%</span>
+                    <span>85%</span>
+                    <span>92%</span>
+                    <span>100%</span>
+                </div>
+            </div>
+
+            <div class="stress-meta">
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Simulations</span>
+                    <span class="stress-meta-value">${result.simulation_count.toLocaleString()}</span>
+                </div>
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Expected Return</span>
+                    <span class="stress-meta-value">${Number(result.mean_return_pct).toFixed(2)}%</span>
+                </div>
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Volatility</span>
+                    <span class="stress-meta-value">${Number(result.volatility_pct).toFixed(2)}%</span>
+                </div>
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Inflation</span>
+                    <span class="stress-meta-value">${Number(result.inflation_pct).toFixed(2)}%</span>
+                </div>
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Terminal P50</span>
+                    <span class="stress-meta-value">${formatCurrency(result.p50_terminal_balance)}</span>
+                </div>
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Last Calculated</span>
+                    <span class="stress-meta-value">${formatTimestamp(result.created_at)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function recalculateStressTest() {
+    const userSelect = document.getElementById('userSelect');
+    const username = userSelect ? userSelect.value : '';
+
+    if (!username || username === 'all') {
+        alert('Please select a single user before running the stress test.');
+        return;
+    }
+
+    const button = document.getElementById('recalculateStressBtn');
+    const stressContent = document.getElementById('stressTestContent');
+    const originalButtonText = button ? button.textContent : 'Recalculate Stress Test';
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Running Stress Test...';
+    }
+    if (stressContent) {
+        stressContent.innerHTML = '<p class="loading">Running 10,000 Monte Carlo simulations. This may take a few seconds...</p>';
+    }
+
+    try {
+        const response = await fetch(`/api/stress-test/${username}/recalculate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ simulation_count: 10000 }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const payload = await response.json();
+        renderStressTestResult(payload.result);
+    } catch (error) {
+        if (stressContent) {
+            stressContent.innerHTML = `<p class="loading" style="color: #F97316;">Stress test failed: ${error.message}</p>`;
+        }
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = originalButtonText;
+        }
+    }
 }
 
 // Balance form functions
@@ -794,4 +1005,19 @@ async function deleteBalance(balanceIdStr, year) {
         console.error('Error deleting balance:', error);
         alert(`Error: ${error.message}`);
     }
+}
+
+if (typeof window !== 'undefined') {
+    window.loadUserData = loadUserData;
+    window.showBalanceForm = showBalanceForm;
+    window.hideBalanceForm = hideBalanceForm;
+    window.submitBalance = submitBalance;
+    window.editBalance = editBalance;
+    window.hideEditBalanceForm = hideEditBalanceForm;
+    window.submitEditBalance = submitEditBalance;
+    window.deleteBalance = deleteBalance;
+    window.recalculateStressTest = recalculateStressTest;
+    window.loadStressTestResult = loadStressTestResult;
+    window.renderSingleUserChart = renderSingleUserChart;
+    window.renderDeltaTable = renderDeltaTable;
 }

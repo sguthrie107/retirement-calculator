@@ -28,6 +28,19 @@
     </div>
 </div>
 
+<div id="stressTestSection" class="stress-section" style="display: none;">
+    <div class="stress-header">
+        <div>
+            <h2>Retirement Stress Test</h2>
+            <p>Monte Carlo simulation with sequence-of-returns risk (manual refresh)</p>
+        </div>
+        <button onclick="recalculateStressTest()" class="btn-primary" id="recalculateStressBtn">Recalculate Stress Test</button>
+    </div>
+    <div id="stressTestContent">
+        <p class="loading">Select a user to load the latest stress test result</p>
+    </div>
+</div>
+
 <div id="deltaTable" class="delta-section">
     <h2>Performance Comparison</h2>
     <div id="deltaContent">
@@ -139,10 +152,15 @@
             const deltaTable = document.getElementById('deltaTable');
             if (addBalanceBtn) addBalanceBtn.style.display = 'inline-block';
             if (deltaTable) deltaTable.style.display = 'block';
+            const stressSection = document.getElementById('stressTestSection');
+            if (stressSection) stressSection.style.display = 'block';
             
             // Render chart and table
             renderSingleUserChart(selectedUserInit, initialData);
             renderDeltaTable(initialData.deltas);
+            if (typeof window.loadStressTestResult === 'function') {
+                window.loadStressTestResult(selectedUserInit);
+            }
         } catch (error) {
             const deltaContent = document.getElementById('deltaContent');
             if (deltaContent) {
