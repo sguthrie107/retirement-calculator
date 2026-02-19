@@ -43,6 +43,12 @@ class StressTestRecalculateRequest(BaseModel):
     random_seed: Optional[int] = Field(default=None, ge=0)
 
 
+class JointStressTestRecalculateRequest(BaseModel):
+    usernames: list[str] = Field(min_length=2)
+    simulation_count: int = Field(default=10000, ge=5000, le=100000)
+    random_seed: Optional[int] = Field(default=None, ge=0)
+
+
 class StressTestResponse(BaseModel):
     id: int
     username: str

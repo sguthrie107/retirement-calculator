@@ -138,7 +138,24 @@ function renderSingleUserChart(username, data) {
     
     console.log('accountBalancesByYear populated:', accountBalancesByYear);
     
+    const projectedData = data.projected.map(d => d.balance);
     const actualData = years.map(year => actualByYear[year] || null);
+    const actualAboveData = years.map((year, idx) => {
+        const actual = actualData[idx];
+        const projected = projectedData[idx];
+        if (actual === null || projected === null || projected === undefined) {
+            return null;
+        }
+        return actual >= projected ? actual : null;
+    });
+    const actualBelowData = years.map((year, idx) => {
+        const actual = actualData[idx];
+        const projected = projectedData[idx];
+        if (actual === null || projected === null || projected === undefined) {
+            return null;
+        }
+        return actual < projected ? actual : null;
+    });
     
     chartInstance = new Chart(ctx, {
         type: 'line',
@@ -147,7 +164,7 @@ function renderSingleUserChart(username, data) {
             datasets: [
                 {
                     label: `${username} - Projected Balance`,
-                    data: data.projected.map(d => d.balance),
+                    data: projectedData,
                     borderColor: '#1E40AF',
                     backgroundColor: 'rgba(30, 64, 175, 0.1)',
                     borderWidth: 3,
@@ -158,6 +175,33 @@ function renderSingleUserChart(username, data) {
                     pointHoverBackgroundColor: '#3B82F6',
                     pointHoverBorderColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
+                    order: 4,
+                },
+                {
+                    label: '',
+                    data: actualAboveData,
+                    borderColor: 'rgba(34, 197, 94, 0.0)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.22)',
+                    borderWidth: 0,
+                    fill: { target: 0 },
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    spanGaps: false,
+                    order: 1,
+                },
+                {
+                    label: '',
+                    data: actualBelowData,
+                    borderColor: 'rgba(239, 68, 68, 0.0)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.24)',
+                    borderWidth: 0,
+                    fill: { target: 0 },
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    spanGaps: false,
+                    order: 2,
                 },
                 {
                     label: `${username} - Actual Balance`,
@@ -176,6 +220,7 @@ function renderSingleUserChart(username, data) {
                     pointHoverBorderColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
                     spanGaps: true,
+                    order: 5,
                 },
             ],
         },
@@ -656,6 +701,114 @@ function renderStressTestResult(result) {
         ? 'Success = portfolio avoids depletion before life expectancy and stays above minimum real threshold.'
         : 'Monte Carlo estimate based on current assumptions.';
 
+    const isJoint = result.assumptions && result.assumptions.joint === true;
+    const memberRows = isJoint && result.assumptions.members
+        ? result.assumptions.members.map(m => `
+            <tr>
+                <td><strong>${m.name}</strong></td>
+                <td>${m.age}</td>
+                <td>${m.retirement_age}</td>
+                <td>${formatCurrency(m.starting_401k)}</td>
+                <td>${formatCurrency(m.starting_ira)}</td>
+                <td>${formatCurrency(m.starting_401k + m.starting_ira)}</td>
+                <td>${(m.contribution_pct * 100).toFixed(1)}%</td>
+                <td>${(m.company_match_pct * 100).toFixed(1)}%</td>
+                <td>${formatCurrency(m.annual_salary)}</td>
+                <td>${(m.salary_growth_pct * 100).toFixed(1)}%</td>
+            </tr>`).join('')
+        : '';
+
+    const horizon = result.assumptions?.horizon || {};
+    const portfolio = result.assumptions?.portfolio_snapshot || result.assumptions?.household_portfolio_snapshot || {};
+    const cashflow = result.assumptions?.cashflow || {};
+    const model = result.assumptions?.model || {};
+    const successDef = result.assumptions?.success_definition || {};
+    const debtPaydown = result.assumptions?.debt_paydown || {};
+    const debtItem = debtPaydown.debts && debtPaydown.debts.length > 0 ? debtPaydown.debts[0] : null;
+
+    const assumptionsHtml = `
+        <div class="assumptions-section">
+            <button class="assumptions-toggle" onclick="toggleAssumptions(this)" aria-expanded="false">
+                <span class="toggle-arrow">▸</span> Details &amp; Assumptions
+            </button>
+            <div class="assumptions-panel" style="display:none;">
+
+                ${isJoint ? `
+                <div class="assumptions-group">
+                    <div class="assumptions-group-title">Household Members</div>
+                    <div class="assumptions-table-wrap">
+                        <table class="assumptions-table">
+                            <thead><tr>
+                                <th>Name</th><th>Age</th><th>Retire At</th>
+                                <th>401k Start</th><th>IRA Start</th><th>Total</th>
+                                <th>Contrib%</th><th>Match%</th><th>Salary</th><th>Salary Growth</th>
+                            </tr></thead>
+                            <tbody>${memberRows}</tbody>
+                        </table>
+                    </div>
+                </div>` : ''}
+
+                <div class="assumptions-grid">
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Timeline</div>
+                        ${horizon.current_age !== undefined ? `<div class="assump-row"><span>Current Age</span><span>${horizon.current_age}</span></div>` : ''}
+                        ${horizon.retirement_age !== undefined ? `<div class="assump-row"><span>Retirement Age</span><span>${horizon.retirement_age}</span></div>` : ''}
+                        <div class="assump-row"><span>Life Expectancy</span><span>${horizon.life_expectancy_age || 95}</span></div>
+                        <div class="assump-row"><span>Years Simulated</span><span>${horizon.years_simulated || '—'}</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Portfolio Snapshot</div>
+                        ${portfolio.starting_total_balance !== undefined ? `<div class="assump-row"><span>Starting Balance</span><span>${formatCurrency(portfolio.starting_total_balance)}</span></div>` : ''}
+                        ${portfolio.combined_starting_balance !== undefined ? `<div class="assump-row"><span>Combined Balance</span><span>${formatCurrency(portfolio.combined_starting_balance)}</span></div>` : ''}
+                        <div class="assump-row"><span>Blended Return</span><span>${Number(portfolio.blended_expected_return_pct || 0).toFixed(2)}%</span></div>
+                        <div class="assump-row"><span>Blended Volatility</span><span>${Number(portfolio.blended_volatility_pct || 0).toFixed(2)}%</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Cashflow Rules</div>
+                        <div class="assump-row"><span>Withdrawal Rate</span><span>${((cashflow.withdrawal_rate || 0.04) * 100).toFixed(1)}%</span></div>
+                        <div class="assump-row"><span>Inflation Rate</span><span>${((cashflow.inflation_rate || 0.025) * 100).toFixed(1)}%</span></div>
+                        <div class="assump-row"><span>Withdrawal Schedule</span><span class="assump-note">${cashflow.withdrawal_phase || 'Begins at retirement, grows with inflation'}</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Debt Paydown</div>
+                        <div class="assump-row"><span>Enabled</span><span>${debtPaydown.enabled ? 'Yes' : 'No'}</span></div>
+                        ${debtItem ? `<div class="assump-row"><span>Debt</span><span>${debtItem.name || 'Student Loans'}</span></div>` : ''}
+                        ${debtItem ? `<div class="assump-row"><span>Principal</span><span>${formatCurrency(debtItem.principal || 0)}</span></div>` : ''}
+                        ${debtItem ? `<div class="assump-row"><span>Interest Rate</span><span>${((debtItem.annual_interest_rate || 0) * 100).toFixed(2)}%</span></div>` : ''}
+                        ${debtItem ? `<div class="assump-row"><span>Base Monthly</span><span>${formatCurrency(debtItem.base_monthly_payment || 0)}</span></div>` : ''}
+                        ${debtItem ? `<div class="assump-row"><span>Extra Monthly</span><span>${formatCurrency(debtItem.additional_monthly_payment_min || 0)} - ${formatCurrency(debtItem.additional_monthly_payment_max || 0)}</span></div>` : ''}
+                        <div class="assump-row"><span>Post-Payoff Step</span><span>${debtPaydown.policy?.post_payoff_contribution_step_pct || 1}% / year</span></div>
+                        <div class="assump-row"><span>Contribution Cap</span><span>${debtPaydown.policy?.post_payoff_contribution_cap_pct || 15}%</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Success Definition</div>
+                        <div class="assump-row"><span>No Depletion</span><span>${successDef.no_depletion_before_life_expectancy ? 'Yes' : 'No'}</span></div>
+                        <div class="assump-row"><span>Min Real Terminal</span><span>${successDef.min_real_terminal_threshold_pct_of_retirement_balance || 10}% of retirement balance</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Return Model</div>
+                        <div class="assump-row"><span>Distribution</span><span class="assump-note">Lognormal w/ Student-t shocks (df=7)</span></div>
+                        <div class="assump-row"><span>Downside Skew</span><span>${model.downside_skew_multiplier || 1.15}× amplification</span></div>
+                        <div class="assump-row"><span>Volatility Clustering</span><span class="assump-note">GARCH-like (ω=0.08, α=0.17, β=0.78)</span></div>
+                        <div class="assump-row"><span>Simulations</span><span>${(result.simulation_count || 10000).toLocaleString()}</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Outcome Percentiles</div>
+                        <div class="assump-row"><span>P10 (Pessimistic)</span><span>${formatCurrency(result.p10_terminal_balance)}</span></div>
+                        <div class="assump-row"><span>P50 (Median)</span><span>${formatCurrency(result.p50_terminal_balance)}</span></div>
+                        <div class="assump-row"><span>P90 (Optimistic)</span><span>${formatCurrency(result.p90_terminal_balance)}</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
     stressContent.innerHTML = `
         <div class="stress-card">
             <div class="stress-card-top">
@@ -666,18 +819,20 @@ function renderStressTestResult(result) {
                     </span>
                     <span class="stress-help" title="${explanation}">ⓘ</span>
                 </div>
+                ${isJoint ? '<span class="joint-badge">Household</span>' : ''}
             </div>
 
             <div class="stress-gauge" aria-label="Probability of successful retirement gauge">
-                <div class="stress-gauge-track"></div>
-                <div class="stress-gauge-marker" style="left: ${markerLeft}%;"></div>
+                <div class="stress-gauge-track">
+                    <div class="stress-gauge-marker" style="left: ${markerLeft}%;"></div>
+                </div>
                 <div class="stress-ticks">
-                    <span>0%</span>
-                    <span>60%</span>
-                    <span>75%</span>
-                    <span>85%</span>
-                    <span>92%</span>
-                    <span>100%</span>
+                    <span class="tick-edge-left" style="left: 0%;">0%</span>
+                    <span style="left: 60%;">60%</span>
+                    <span style="left: 75%;">75%</span>
+                    <span style="left: 85%;">85%</span>
+                    <span style="left: 92%;">92%</span>
+                    <span class="tick-edge-right" style="left: 100%;">100%</span>
                 </div>
             </div>
 
@@ -707,10 +862,104 @@ function renderStressTestResult(result) {
                     <span class="stress-meta-value">${formatTimestamp(result.created_at)}</span>
                 </div>
             </div>
+
+            ${assumptionsHtml}
         </div>
     `;
 }
 
+function toggleAssumptions(btn) {
+    const panel = btn.nextElementSibling;
+    const arrow = btn.querySelector('.toggle-arrow');
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    if (expanded) {
+        panel.style.display = 'none';
+        btn.setAttribute('aria-expanded', 'false');
+        if (arrow) arrow.textContent = '▸';
+    } else {
+        panel.style.display = 'block';
+        btn.setAttribute('aria-expanded', 'true');
+        if (arrow) arrow.textContent = '▾';
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Joint (household) stress test
+// ---------------------------------------------------------------------------
+
+const JOINT_USERNAMES = ['Steven', 'Alyssa'];
+let currentStressMode = 'individual'; // 'individual' | 'joint'
+
+function toggleStressMode(mode) {
+    if (mode === currentStressMode) return;
+    currentStressMode = mode;
+
+    document.getElementById('stressTabIndividual').classList.toggle('active', mode === 'individual');
+    document.getElementById('stressTabJoint').classList.toggle('active', mode === 'joint');
+
+    const userSelect = document.getElementById('userSelect');
+    const username = userSelect ? userSelect.value : '';
+
+    if (mode === 'individual') {
+        if (username && username !== 'all') {
+            loadStressTestResult(username);
+        }
+        document.getElementById('recalculateStressBtn').style.display = 'inline-flex';
+        document.getElementById('recalculateJointBtn').style.display = 'none';
+    } else {
+        loadJointStressTestResult();
+        document.getElementById('recalculateStressBtn').style.display = 'none';
+        document.getElementById('recalculateJointBtn').style.display = 'inline-flex';
+    }
+}
+
+async function loadJointStressTestResult() {
+    const stressContent = document.getElementById('stressTestContent');
+    if (!stressContent) return;
+
+    stressContent.innerHTML = '<p class="loading">Loading household stress test...</p>';
+
+    try {
+        const params = JOINT_USERNAMES.map(u => `usernames=${encodeURIComponent(u)}`).join('&');
+        const response = await fetch(`/api/stress-test/joint-result?${params}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const payload = await response.json();
+        renderStressTestResult(payload.result);
+        if (!payload.result) {
+            document.getElementById('stressTestContent').innerHTML += `
+                <div class="stress-empty" style="margin-top:0.75rem;">
+                    <p>No household stress test stored yet.</p>
+                    <p>Click <strong>Recalculate Household</strong> to run a joint simulation combining both portfolios.</p>
+                </div>`;
+        }
+    } catch (error) {
+        stressContent.innerHTML = `<p class="loading" style="color: #F97316;">Unable to load household stress test: ${error.message}</p>`;
+    }
+}
+
+async function recalculateJointStressTest() {
+    const button = document.getElementById('recalculateJointBtn');
+    const stressContent = document.getElementById('stressTestContent');
+    const originalText = button ? button.textContent : 'Recalculate Household';
+
+    if (button) { button.disabled = true; button.textContent = 'Running…'; }
+    if (stressContent) stressContent.innerHTML = '<p class="loading">Running 10,000 household Monte Carlo simulations…</p>';
+
+    try {
+        const response = await fetch('/api/stress-test/recalculate-joint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ usernames: JOINT_USERNAMES, simulation_count: 10000 }),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const payload = await response.json();
+        renderStressTestResult(payload.result);
+    } catch (error) {
+        if (stressContent) stressContent.innerHTML = `<p class="loading" style="color: #F97316;">Household stress test failed: ${error.message}</p>`;
+    } finally {
+        if (button) { button.disabled = false; button.textContent = originalText; }
+    }
+}
 async function recalculateStressTest() {
     const userSelect = document.getElementById('userSelect');
     const username = userSelect ? userSelect.value : '';
@@ -1020,4 +1269,8 @@ if (typeof window !== 'undefined') {
     window.loadStressTestResult = loadStressTestResult;
     window.renderSingleUserChart = renderSingleUserChart;
     window.renderDeltaTable = renderDeltaTable;
+    window.toggleStressMode = toggleStressMode;
+    window.loadJointStressTestResult = loadJointStressTestResult;
+    window.recalculateJointStressTest = recalculateJointStressTest;
+    window.toggleAssumptions = toggleAssumptions;
 }

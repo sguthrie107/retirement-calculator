@@ -34,7 +34,14 @@
             <h2>Retirement Stress Test</h2>
             <p>Monte Carlo simulation with sequence-of-returns risk (manual refresh)</p>
         </div>
-        <button onclick="recalculateStressTest()" class="btn-primary" id="recalculateStressBtn">Recalculate Stress Test</button>
+        <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+            <div class="stress-mode-tabs">
+                <button id="stressTabIndividual" class="stress-tab-btn active" onclick="toggleStressMode('individual')">Individual</button>
+                <button id="stressTabJoint" class="stress-tab-btn" onclick="toggleStressMode('joint')">Household (Steven + Alyssa)</button>
+            </div>
+            <button onclick="recalculateStressTest()" class="btn-primary" id="recalculateStressBtn">Recalculate Stress Test</button>
+            <button onclick="recalculateJointStressTest()" class="btn-primary" id="recalculateJointBtn" style="display:none;">Recalculate Household</button>
+        </div>
     </div>
     <div id="stressTestContent">
         <p class="loading">Select a user to load the latest stress test result</p>

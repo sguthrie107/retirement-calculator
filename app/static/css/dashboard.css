@@ -393,35 +393,52 @@ select:focus {
 .stress-gauge {
     position: relative;
     margin: 0.5rem 0 1rem;
+    padding-top: 0.3rem;
 }
 
 .stress-gauge-track {
+    position: relative;
     height: 14px;
     border-radius: 999px;
     background: linear-gradient(90deg, #EF4444 0%, #F97316 25%, #F59E0B 50%, #84CC16 75%, #16A34A 100%);
     border: 1px solid var(--border);
-    overflow: hidden;
+    overflow: visible;
 }
 
 .stress-gauge-marker {
     position: absolute;
-    top: -4px;
-    width: 22px;
-    height: 22px;
+    top: 50%;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     border: 2px solid #FFFFFF;
     background: var(--text-primary);
-    box-shadow: var(--shadow-md);
-    transform: translateX(-50%);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.65), 0 6px 14px rgba(15, 23, 42, 0.35);
+    transform: translate(-50%, -50%);
 }
 
 .stress-ticks {
     margin-top: 0.5rem;
-    display: flex;
-    justify-content: space-between;
+    position: relative;
+    height: 1rem;
     color: var(--text-muted);
     font-size: 0.78rem;
     font-weight: 600;
+}
+
+.stress-ticks span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.stress-ticks .tick-edge-left {
+    transform: translateX(0);
+}
+
+.stress-ticks .tick-edge-right {
+    transform: translateX(-100%);
 }
 
 .stress-meta {
@@ -705,3 +722,186 @@ footer code {
 html {
     scroll-behavior: smooth;
 }
+
+/* ---------------------------------------------------------------------------
+   Stress test mode tabs (Individual / Household)
+--------------------------------------------------------------------------- */
+
+.stress-mode-tabs {
+    display: flex;
+    gap: 0.4rem;
+    background: var(--background-light);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.25rem;
+}
+
+.stress-tab-btn {
+    padding: 0.35rem 0.9rem;
+    border-radius: 7px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.83rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.stress-tab-btn:hover {
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+.stress-tab-btn.active {
+    background: var(--surface);
+    color: var(--text-primary);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+
+/* Joint badge shown inside the stress card */
+.joint-badge {
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(30, 64, 175, 0.1);
+    color: #1E40AF;
+    border: 1px solid #93C5FD;
+    font-size: 0.73rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------------------
+   Assumptions accordion
+--------------------------------------------------------------------------- */
+
+.assumptions-section {
+    margin-top: 1.1rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+}
+
+.assumptions-toggle {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.3rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: color 0.15s;
+    width: 100%;
+    text-align: left;
+}
+
+.assumptions-toggle:hover {
+    color: var(--text-primary);
+}
+
+.toggle-arrow {
+    font-size: 0.75rem;
+    transition: transform 0.2s;
+}
+
+.assumptions-panel {
+    margin-top: 0.8rem;
+}
+
+.assumptions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.assumptions-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.9rem;
+}
+
+.assumptions-group-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 0.55rem;
+}
+
+.assump-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.28rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+    line-height: 1.45;
+}
+
+.assump-row:last-child {
+    border-bottom: none;
+}
+
+.assump-row span:first-child {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.assump-row span:last-child {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+}
+
+.assump-note {
+    font-size: 0.79rem !important;
+    font-weight: 400 !important;
+    color: var(--text-secondary) !important;
+    max-width: 200px;
+    line-height: 1.35;
+}
+
+/* Household members table inside assumptions */
+.assumptions-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 0.85rem;
+}
+
+.assumptions-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.82rem;
+}
+
+.assumptions-table th {
+    background: var(--background-light);
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.assumptions-table td {
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.assumptions-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
