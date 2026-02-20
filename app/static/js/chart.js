@@ -1,7 +1,10 @@
 // Chart.js initialization and data management
 
 let chartInstance = null;
-let accountBalancesByYear = {};  // Global variable for tooltip access
+let projectedAccountBalancesByYear = {};
+let actualAccountBalancesByYear = {};
+let projectedTotalsByYear = {};
+let actualTotalsByYear = {};
 
 if (window.Chart) {
     Chart.defaults.font.family = 'Montserrat, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -10,8 +13,8 @@ if (window.Chart) {
 
 // Color palette for multiple users
 const userColors = {
-    'Steven': { border: '#1E40AF', bg: 'rgba(30, 64, 175, 0.1)' },
-    'Alyssa': { border: '#F97316', bg: 'rgba(249, 115, 22, 0.1)' },
+    'Steven': { border: '#1F3A8A', bg: 'rgba(31, 58, 138, 0.12)' },
+    'Alyssa': { border: '#C8A44D', bg: 'rgba(200, 164, 77, 0.14)' },
     'User3': { border: '#06B6D4', bg: 'rgba(6, 182, 212, 0.1)' },
     'User4': { border: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.1)' },
 };
@@ -82,9 +85,9 @@ async function loadSingleUser(username) {
     } catch (error) {
         console.error('Error loading user data:', error);
         document.getElementById('deltaContent').innerHTML = 
-            `<p class="loading" style="color: #F97316;">Error loading data: ${error.message}</p>`;
+            `<p class="loading" style="color: #9A3412;">Error loading data: ${error.message}</p>`;
         document.getElementById('retirementChart').innerHTML =
-            `<p class="loading" style="color: #F97316;">Error loading data: ${error.message}</p>`;
+            `<p class="loading" style="color: #9A3412;">Error loading data: ${error.message}</p>`;
     }
 }
 
@@ -100,7 +103,7 @@ async function loadAllUsers() {
     } catch (error) {
         console.error('Error loading all users:', error);
         document.getElementById('retirementChart').innerHTML = 
-            `<p class="loading" style="color: #F97316;">Error loading data: ${error.message}</p>`;
+            `<p class="loading" style="color: #9A3412;">Error loading data: ${error.message}</p>`;
     }
 }
 
@@ -124,20 +127,23 @@ function renderSingleUserChart(username, data) {
     
     // Create actual data array matching projected years (null for missing years)
     const actualByYear = {};
-    accountBalancesByYear = {};  // Reset global variable
+    projectedAccountBalancesByYear = {};
+    actualAccountBalancesByYear = {};
+    projectedTotalsByYear = {};
+    actualTotalsByYear = {};
     
-    // Populate from projected data (which now includes merged account_balances)
+    // Populate projected totals and projected account balances
     data.projected.forEach(d => {
-        accountBalancesByYear[d.year] = d.account_balances || {};
+        projectedTotalsByYear[d.year] = d.balance;
+        projectedAccountBalancesByYear[d.year] = d.account_balances || {};
     });
     
-    // Also populate from actual data if it exists
+    // Populate actual totals and actual account balances
     data.actual.forEach(d => {
         actualByYear[d.year] = d.balance;
-        accountBalancesByYear[d.year] = d.account_balances || {};
+        actualTotalsByYear[d.year] = d.balance;
+        actualAccountBalancesByYear[d.year] = d.account_balances || {};
     });
-    
-    console.log('accountBalancesByYear populated:', accountBalancesByYear);
     
     const projectedData = data.projected.map(d => d.balance);
     const actualData = years.map(year => actualByYear[year] || null);
@@ -156,6 +162,14 @@ function renderSingleUserChart(username, data) {
             return null;
         }
         return actual < projected ? actual : null;
+    });
+    const differencePointColors = years.map((year, idx) => {
+        const actual = actualData[idx];
+        const projected = projectedData[idx];
+        if (actual === null || projected === null || projected === undefined) {
+            return 'rgba(0,0,0,0)';
+        }
+        return actual >= projected ? '#16A34A' : '#DC2626';
     });
     
     const retirementMarkerPlugin = {
@@ -220,14 +234,14 @@ function renderSingleUserChart(username, data) {
                 {
                     label: `${username} - Projected Balance`,
                     data: projectedData,
-                    borderColor: '#1E40AF',
-                    backgroundColor: 'rgba(30, 64, 175, 0.1)',
+                    borderColor: '#1F3A8A',
+                    backgroundColor: 'rgba(31, 58, 138, 0.12)',
                     borderWidth: 3,
                     fill: true,
                     tension: 0.4,
                     pointRadius: 0,
                     pointHoverRadius: 8,
-                    pointHoverBackgroundColor: '#3B82F6',
+                    pointHoverBackgroundColor: '#3658B0',
                     pointHoverBorderColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
                     order: 4,
@@ -235,17 +249,17 @@ function renderSingleUserChart(username, data) {
                 {
                     label: `${username} - Actual Balance`,
                     data: actualData,
-                    borderColor: '#F97316',
-                    backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                    borderColor: '#C8A44D',
+                    backgroundColor: 'rgba(200, 164, 77, 0.14)',
                     borderWidth: 3,
                     fill: false,
                     tension: 0.4,
                     pointRadius: 6,
                     pointHoverRadius: 10,
-                    pointBackgroundColor: '#F97316',
+                    pointBackgroundColor: differencePointColors,
                     pointBorderColor: '#FFFFFF',
                     pointBorderWidth: 2,
-                    pointHoverBackgroundColor: '#FB923C',
+                    pointHoverBackgroundColor: differencePointColors,
                     pointHoverBorderColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
                     spanGaps: true,
@@ -268,22 +282,30 @@ function renderSingleUserChart(username, data) {
                         padding: 20,
                         usePointStyle: true,
                         pointStyle: 'circle',
-                    },
-                    generateLabels: function(chart) {
-                        return chart.data.datasets
-                            .map((dataset, index) => {
-                                if (!dataset.label || dataset.label.trim() === '') {
-                                    return null;
+                        generateLabels: function(chart) {
+                            const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                            return labels.map((item) => {
+                                if (item.text && item.text.includes('Projected Balance')) {
+                                    return {
+                                        ...item,
+                                        fillStyle: 'rgba(31, 58, 138, 0.35)',
+                                        strokeStyle: '#1F3A8A',
+                                        lineWidth: 2,
+                                        pointStyle: 'circle',
+                                    };
                                 }
-                                return {
-                                    text: dataset.label,
-                                    fillStyle: dataset.borderColor || dataset.backgroundColor,
-                                    hidden: !chart.isDatasetVisible(index),
-                                    index: index,
-                                    pointStyle: 'circle',
-                                };
-                            })
-                            .filter(item => item !== null);
+                                if (item.text && item.text.includes('Actual Balance')) {
+                                    return {
+                                        ...item,
+                                        fillStyle: 'rgba(200, 164, 77, 0.9)',
+                                        strokeStyle: '#8C6A24',
+                                        lineWidth: 2,
+                                        pointStyle: 'circle',
+                                    };
+                                }
+                                return item;
+                            });
+                        },
                     }
                 },
                 tooltip: {
@@ -320,35 +342,43 @@ function renderSingleUserChart(username, data) {
                                 label += new Intl.NumberFormat('en-US', {
                                     style: 'currency',
                                     currency: 'USD',
-                                    minimumFractionDigits: 0,
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
                                 }).format(context.parsed.y);
                             }
                             return label;
                         },
-                        afterLabel: function(context) {
-                            // Show account breakdown for BOTH projected (dataset 0) and actual (dataset 1)
-                            const year = context.label;
-                            const breakdown = accountBalancesByYear[year];
-                            
-                            if (breakdown && Object.keys(breakdown).length > 0) {
-                                let result = [];
-                                if (breakdown['401k']) {
-                                    result.push('401k: ' + new Intl.NumberFormat('en-US', {
-                                        style: 'currency',
-                                        currency: 'USD',
-                                        minimumFractionDigits: 0,
-                                    }).format(breakdown['401k']));
-                                }
-                                if (breakdown['roth_ira']) {
-                                    result.push('IRA: ' + new Intl.NumberFormat('en-US', {
-                                        style: 'currency',
-                                        currency: 'USD',
-                                        minimumFractionDigits: 0,
-                                    }).format(breakdown['roth_ira']));
-                                }
-                                return result.join('\n');
+                        afterBody: function(context) {
+                            if (!context || context.length === 0) {
+                                return '';
                             }
-                            return '';
+
+                            const year = context[0].label;
+                            const projectedBreakdown = projectedAccountBalancesByYear[year] || {};
+                            const actualBreakdown = actualAccountBalancesByYear[year] || {};
+
+                            const formatMoney = (value) => new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            }).format(value || 0);
+
+                            const rows = [];
+
+                            if (projectedTotalsByYear[year] !== undefined) {
+                                rows.push('Projected (Total): ' + formatMoney(projectedTotalsByYear[year]));
+                                rows.push('Projected (401k): ' + formatMoney(projectedBreakdown['401k']));
+                                rows.push('Projected (IRA): ' + formatMoney(projectedBreakdown['roth_ira']));
+                            }
+
+                            if (actualTotalsByYear[year] !== undefined) {
+                                rows.push('Actual (Total): ' + formatMoney(actualTotalsByYear[year]));
+                                rows.push('Actual (401k): ' + formatMoney(actualBreakdown['401k']));
+                                rows.push('Actual (IRA): ' + formatMoney(actualBreakdown['roth_ira']));
+                            }
+
+                            return rows;
                         }
                     }
                 }
@@ -384,7 +414,8 @@ function renderSingleUserChart(username, data) {
                             return new Intl.NumberFormat('en-US', {
                                 style: 'currency',
                                 currency: 'USD',
-                                minimumFractionDigits: 0,
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
                             }).format(value);
                         }
                     },
@@ -539,7 +570,8 @@ function renderAllUsersChart(usersData) {
                                 label += new Intl.NumberFormat('en-US', {
                                     style: 'currency',
                                     currency: 'USD',
-                                    minimumFractionDigits: 0,
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
                                 }).format(context.parsed.y);
                             }
                             return label;
@@ -578,7 +610,8 @@ function renderAllUsersChart(usersData) {
                             return new Intl.NumberFormat('en-US', {
                                 style: 'currency',
                                 currency: 'USD',
-                                minimumFractionDigits: 0,
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
                             }).format(value);
                         }
                     },
@@ -692,7 +725,8 @@ function formatCurrency(value) {
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
-        minimumFractionDigits: 0,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     }).format(value);
 }
 

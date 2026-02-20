@@ -6,6 +6,28 @@
       "retirement_age": 65,
       "social_security_claim_age": 70,
       "withdrawal_pct": 0.05,
+      "chart_seed": {
+        "projected_backcast": {
+          "anchor_year": 2024,
+          "years": [2024, 2025]
+        },
+        "actual_balances": [
+          {
+            "year": 2024,
+            "account_balances": {
+              "401k": 14166.29,
+              "roth_ira": 20053.0
+            }
+          },
+          {
+            "year": 2025,
+            "account_balances": {
+              "401k": 32271.14,
+              "roth_ira": 28960.16
+            }
+          }
+        ]
+      },
       "current_401k_balance": 60000,
       "contribution_details": {
         "annual_salary": 135000,

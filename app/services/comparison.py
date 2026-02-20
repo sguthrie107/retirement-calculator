@@ -23,6 +23,237 @@ def _load_user_profile(username: str) -> dict:
     raise ValueError(f"User '{username}' not found in users.json")
 
 
+def _sum_account_balances(account_balances: dict) -> float:
+    return round(float(account_balances.get("401k", 0.0)) + float(account_balances.get("roth_ira", 0.0)), 2)
+
+
+def _estimated_annual_contribution(profile: dict, years_since_base: int = 0) -> float:
+    contribution = profile.get("contribution_details", {})
+    salary = float(contribution.get("annual_salary", 0.0))
+    salary_growth = float(contribution.get("salary_increase_pct", 0.0))
+    employee_pct = float(contribution.get("annual_contribution_pct", 0.0))
+    company_match_pct = float(contribution.get("company_match_pct", 0.0))
+    vested_pct = float(contribution.get("company_match_vested_pct", 1.0))
+    annual_ira_contribution = float(contribution.get("annual_ira_contribution", 0.0))
+
+    effective_salary = salary * ((1.0 + salary_growth) ** max(0, years_since_base))
+    annual_401k_contribution = effective_salary * (employee_pct + (company_match_pct * vested_pct))
+    return max(annual_401k_contribution + annual_ira_contribution, 0.0)
+
+
+def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[dict]:
+    seed = profile.get("chart_seed", {})
+    projected_backcast = seed.get("projected_backcast", {})
+    if projected_backcast:
+        native_projected = sorted(projected, key=lambda item: item.get("year", 0))
+        if not native_projected:
+            return projected
+
+        first_native_year = int(native_projected[0].get("year", 0))
+        if first_native_year <= 0:
+            return projected
+
+        target_years = sorted({int(year) for year in projected_backcast.get("years", []) if int(year) > 0})
+        if not target_years:
+            return projected
+
+        actual_seed_map = {
+            int(item.get("year", 0)): item
+            for item in seed.get("actual_balances", [])
+            if int(item.get("year", 0)) > 0
+        }
+        native_by_year = {int(item.get("year", 0)): dict(item) for item in native_projected}
+
+        anchor_year = int(projected_backcast.get("anchor_year", min(target_years)))
+        anchor_accounts: dict[str, float] = {}
+        anchor_total = 0.0
+
+        if anchor_year in actual_seed_map:
+            anchor_accounts = {
+                "401k": float(actual_seed_map[anchor_year].get("account_balances", {}).get("401k", 0.0)),
+                "roth_ira": float(actual_seed_map[anchor_year].get("account_balances", {}).get("roth_ira", 0.0)),
+            }
+            anchor_total = _sum_account_balances(anchor_accounts)
+        elif anchor_year in native_by_year:
+            anchor_accounts = {
+                "401k": float(native_by_year[anchor_year].get("account_balances", {}).get("401k", 0.0)),
+                "roth_ira": float(native_by_year[anchor_year].get("account_balances", {}).get("roth_ira", 0.0)),
+            }
+            anchor_total = float(native_by_year[anchor_year].get("balance", 0.0))
+
+        if anchor_total <= 0.0:
+            return projected
+
+        implied_return = 0.08
+        if (first_native_year + 1) in native_by_year:
+            first_total = float(native_by_year[first_native_year].get("balance", 0.0))
+            second_total = float(native_by_year[first_native_year + 1].get("balance", 0.0))
+            if first_total > 0.0:
+                native_contribution = _estimated_annual_contribution(profile, years_since_base=max(0, first_native_year - anchor_year))
+                native_mid = 0.5 * native_contribution
+                denom = first_total + native_mid
+                if denom > 0.0:
+                    implied_return = ((second_total - native_mid) / denom) - 1.0
+                    implied_return = max(-0.60, min(0.60, implied_return))
+
+        rebased_by_year: dict[int, dict] = {}
+        rebased_by_year[anchor_year] = {
+            "year": anchor_year,
+            "balance": round(anchor_total, 2),
+            "account_balances": {
+                "401k": round(float(anchor_accounts.get("401k", 0.0)), 2),
+                "roth_ira": round(float(anchor_accounts.get("roth_ira", 0.0)), 2),
+            },
+        }
+
+        cursor_total = anchor_total
+        cursor_accounts = {
+            "401k": float(anchor_accounts.get("401k", 0.0)),
+            "roth_ira": float(anchor_accounts.get("roth_ira", 0.0)),
+        }
+
+        for year in range(anchor_year + 1, first_native_year + 1):
+            years_since_base = max(0, year - anchor_year - 1)
+            contribution = _estimated_annual_contribution(profile, years_since_base=years_since_base)
+            next_total = (cursor_total + 0.5 * contribution) * (1.0 + implied_return) + (0.5 * contribution)
+
+            k401_weight = cursor_accounts["401k"] / cursor_total if cursor_total > 0 else 0.5
+            ira_weight = 1.0 - k401_weight
+            next_accounts = {
+                "401k": next_total * k401_weight,
+                "roth_ira": next_total * ira_weight,
+            }
+
+            rebased_by_year[year] = {
+                "year": year,
+                "balance": round(next_total, 2),
+                "account_balances": {
+                    "401k": round(next_accounts["401k"], 2),
+                    "roth_ira": round(next_accounts["roth_ira"], 2),
+                },
+            }
+
+            cursor_total = next_total
+            cursor_accounts = next_accounts
+
+        rebased_native_anchor_total = float(rebased_by_year[first_native_year].get("balance", 0.0))
+        native_anchor_total = float(native_by_year[first_native_year].get("balance", 0.0))
+        scale = (rebased_native_anchor_total / native_anchor_total) if native_anchor_total > 0 else 1.0
+
+        merged: dict[int, dict] = {}
+        for point in native_projected:
+            year = int(point.get("year", 0))
+            scaled_accounts = point.get("account_balances", {})
+            merged[year] = {
+                "year": year,
+                "balance": round(float(point.get("balance", 0.0)) * scale, 2),
+                "account_balances": {
+                    "401k": round(float(scaled_accounts.get("401k", 0.0)) * scale, 2),
+                    "roth_ira": round(float(scaled_accounts.get("roth_ira", 0.0)) * scale, 2),
+                },
+            }
+
+        for year in target_years:
+            if year in rebased_by_year:
+                merged[year] = rebased_by_year[year]
+
+        return [merged[year] for year in sorted(merged.keys())]
+
+    projected_start = seed.get("projected_start")
+    if not projected_start:
+        return projected
+
+    native_projected = sorted(projected, key=lambda item: item.get("year", 0))
+    seeded_projected = list(native_projected)
+    existing_years = {int(item.get("year", 0)) for item in seeded_projected}
+
+    start_year = int(projected_start.get("year", 0))
+    start_accounts = projected_start.get("account_balances", {})
+    start_total = _sum_account_balances(start_accounts)
+
+    if start_year and start_year not in existing_years:
+        seeded_projected.append(
+            {
+                "year": start_year,
+                "balance": start_total,
+                "account_balances": {
+                    "401k": round(float(start_accounts.get("401k", 0.0)), 2),
+                    "roth_ira": round(float(start_accounts.get("roth_ira", 0.0)), 2),
+                },
+            }
+        )
+        existing_years.add(start_year)
+
+    bridge_year = int(seed.get("bridge_year", 0))
+    if bridge_year and bridge_year not in existing_years and start_total > 0:
+        implied_return = 0.08
+        if len(native_projected) >= 2:
+            first_total = float(native_projected[0].get("balance", 0.0))
+            second_total = float(native_projected[1].get("balance", 0.0))
+            if first_total > 0.0:
+                native_contribution = _estimated_annual_contribution(profile, years_since_base=0)
+                native_mid = 0.5 * native_contribution
+                denom = first_total + native_mid
+                if denom > 0.0:
+                    implied_return = ((second_total - native_mid) / denom) - 1.0
+                    implied_return = max(-0.60, min(0.60, implied_return))
+
+        years_from_seed_start = max(0, bridge_year - start_year)
+        bridge_contribution = _estimated_annual_contribution(profile, years_since_base=years_from_seed_start)
+        bridge_total = (start_total + 0.5 * bridge_contribution) * (1.0 + implied_return) + (0.5 * bridge_contribution)
+
+        start_401k = float(start_accounts.get("401k", 0.0))
+        start_ira = float(start_accounts.get("roth_ira", 0.0))
+        if start_total > 0.0:
+            k401_weight = start_401k / start_total
+            ira_weight = start_ira / start_total
+        else:
+            k401_weight = 0.5
+            ira_weight = 0.5
+
+        bridge_accounts = {
+            "401k": round(bridge_total * k401_weight, 2),
+            "roth_ira": round(bridge_total * ira_weight, 2),
+        }
+        seeded_projected.append(
+            {
+                "year": bridge_year,
+                "balance": _sum_account_balances(bridge_accounts),
+                "account_balances": bridge_accounts,
+            }
+        )
+
+    return sorted(seeded_projected, key=lambda item: item.get("year", 0))
+
+
+def _apply_actual_chart_seed(actual: list[dict], profile: dict) -> list[dict]:
+    seed = profile.get("chart_seed", {})
+    seed_actual = seed.get("actual_balances", [])
+    if not seed_actual:
+        return actual
+
+    by_year = {int(item.get("year", 0)): item for item in actual}
+    for item in seed_actual:
+        year = int(item.get("year", 0))
+        if year <= 0:
+            continue
+
+        account_balances = item.get("account_balances", {})
+        seeded_entry = {
+            "year": year,
+            "balance": _sum_account_balances(account_balances),
+            "balance_ids": by_year.get(year, {}).get("balance_ids", []),
+            "timestamp": by_year.get(year, {}).get("timestamp"),
+            "account_balances": {
+                "401k": round(float(account_balances.get("401k", 0.0)), 2),
+                "roth_ira": round(float(account_balances.get("roth_ira", 0.0)), 2),
+            },
+        }
+        by_year[year] = seeded_entry
+
+    return [by_year[year] for year in sorted(by_year.keys())]
+
+
 def get_comparison_data(username: str, db: Session, current_year: int = 2026) -> dict:
     """
     Get actual vs projected comparison data for a user.
@@ -39,18 +270,12 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     projection_data = get_user_projection(username, current_year)
     projected = projection_data["projected"]
     profile = _load_user_profile(username)
+    projected = _apply_projected_chart_seed(projected, profile)
     retirement_age = int(profile.get("retirement_age", 65))
     current_age = int(profile.get("age", 35))
     retirement_year = current_year + max(0, retirement_age - current_age)
     
-    # Merge projected account_balances with actual account_balances
-    # Create a merged account_balances map for ALL years
-    all_account_balances = {}
-    
-    # First, populate with projected data
-    for p in projected:
-        year = p["year"]
-        all_account_balances[year] = p.get("account_balances", {}).copy()
+    # Keep projected account balances as true projected values.
     
     # Get actual balances from database
     user = db.query(User).filter(User.name == username).first()
@@ -108,13 +333,8 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
             for year, balance in sorted(actual_by_year.items())
         ]
         
-        # Merge actual account balances into the all_account_balances map
-        for year, acct_bal in account_balances_map.items():
-            all_account_balances[year] = acct_bal
     
-    # Update projected list to use merged account_balances
-    for p in projected:
-        p["account_balances"] = all_account_balances.get(p["year"], p.get("account_balances", {}))
+    actual = _apply_actual_chart_seed(actual, profile)
     
     # Debug logging
     print(f"DEBUG comparison.py: account_balances_map = {account_balances_map}")
