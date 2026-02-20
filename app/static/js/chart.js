@@ -106,6 +106,7 @@ async function loadAllUsers() {
 
 function renderSingleUserChart(username, data) {
     const ctx = document.getElementById('retirementChart');
+    const retirementYear = Number.isFinite(Number(data.retirement_year)) ? Number(data.retirement_year) : null;
     
     // Destroy existing chart if it exists
     if (chartInstance) {
@@ -157,8 +158,62 @@ function renderSingleUserChart(username, data) {
         return actual < projected ? actual : null;
     });
     
+    const retirementMarkerPlugin = {
+        id: 'retirementMarker',
+        afterDraw(chart, _args, pluginOptions) {
+            const markerYear = pluginOptions?.retirementYear;
+            if (!markerYear) {
+                return;
+            }
+
+            const labels = chart.data.labels || [];
+            if (!labels.includes(markerYear)) {
+                return;
+            }
+
+            const xScale = chart.scales.x;
+            const chartArea = chart.chartArea;
+            if (!xScale || !chartArea) {
+                return;
+            }
+
+            const x = xScale.getPixelForValue(markerYear);
+            const top = chartArea.top;
+            const bottom = chartArea.bottom;
+            const ctx2d = chart.ctx;
+            const segmentHeight = 8;
+
+            ctx2d.save();
+            ctx2d.lineWidth = 3;
+
+            let isBlack = true;
+            for (let y = top; y < bottom; y += segmentHeight) {
+                ctx2d.strokeStyle = isBlack ? '#0F172A' : '#FFFFFF';
+                ctx2d.beginPath();
+                ctx2d.moveTo(x, y);
+                ctx2d.lineTo(x, Math.min(y + segmentHeight, bottom));
+                ctx2d.stroke();
+                isBlack = !isBlack;
+            }
+
+            ctx2d.strokeStyle = 'rgba(15, 23, 42, 0.35)';
+            ctx2d.lineWidth = 1;
+            ctx2d.beginPath();
+            ctx2d.moveTo(x - 2, top);
+            ctx2d.lineTo(x - 2, bottom);
+            ctx2d.stroke();
+
+            ctx2d.fillStyle = '#0F172A';
+            ctx2d.font = '600 11px Montserrat';
+            ctx2d.textAlign = 'center';
+            ctx2d.fillText('Retirement', x, top + 14);
+            ctx2d.restore();
+        }
+    };
+
     chartInstance = new Chart(ctx, {
         type: 'line',
+        plugins: [retirementMarkerPlugin],
         data: {
             labels: years,
             datasets: [
@@ -176,32 +231,6 @@ function renderSingleUserChart(username, data) {
                     pointHoverBorderColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
                     order: 4,
-                },
-                {
-                    label: '',
-                    data: actualAboveData,
-                    borderColor: 'rgba(34, 197, 94, 0.0)',
-                    backgroundColor: 'rgba(34, 197, 94, 0.22)',
-                    borderWidth: 0,
-                    fill: { target: 0 },
-                    tension: 0.4,
-                    pointRadius: 0,
-                    pointHoverRadius: 0,
-                    spanGaps: false,
-                    order: 1,
-                },
-                {
-                    label: '',
-                    data: actualBelowData,
-                    borderColor: 'rgba(239, 68, 68, 0.0)',
-                    backgroundColor: 'rgba(239, 68, 68, 0.24)',
-                    borderWidth: 0,
-                    fill: { target: 0 },
-                    tension: 0.4,
-                    pointRadius: 0,
-                    pointHoverRadius: 0,
-                    spanGaps: false,
-                    order: 2,
                 },
                 {
                     label: `${username} - Actual Balance`,
@@ -228,6 +257,9 @@ function renderSingleUserChart(username, data) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
+                retirementMarker: {
+                    retirementYear: retirementYear
+                },
                 legend: {
                     position: 'top',
                     labels: {
@@ -236,6 +268,22 @@ function renderSingleUserChart(username, data) {
                         padding: 20,
                         usePointStyle: true,
                         pointStyle: 'circle',
+                    },
+                    generateLabels: function(chart) {
+                        return chart.data.datasets
+                            .map((dataset, index) => {
+                                if (!dataset.label || dataset.label.trim() === '') {
+                                    return null;
+                                }
+                                return {
+                                    text: dataset.label,
+                                    fillStyle: dataset.borderColor || dataset.backgroundColor,
+                                    hidden: !chart.isDatasetVisible(index),
+                                    index: index,
+                                    pointStyle: 'circle',
+                                };
+                            })
+                            .filter(item => item !== null);
                     }
                 },
                 tooltip: {
@@ -442,6 +490,22 @@ function renderAllUsersChart(usersData) {
                         padding: 20,
                         usePointStyle: true,
                         pointStyle: 'circle',
+                    },
+                    generateLabels: function(chart) {
+                        return chart.data.datasets
+                            .map((dataset, index) => {
+                                if (!dataset.label || dataset.label.trim() === '') {
+                                    return null;
+                                }
+                                return {
+                                    text: dataset.label,
+                                    fillStyle: dataset.borderColor || dataset.backgroundColor,
+                                    hidden: !chart.isDatasetVisible(index),
+                                    index: index,
+                                    pointStyle: 'circle',
+                                };
+                            })
+                            .filter(item => item !== null);
                     }
                 },
                 tooltip: {

@@ -1,7 +1,26 @@
 """Comparison service - merges actual vs projected data."""
+import json
+from pathlib import Path
+
 from sqlalchemy.orm import Session
 from ..models import User, Account, ActualBalance
 from .projection import get_user_projection
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _load_user_profile(username: str) -> dict:
+    users_path = _project_root() / "data" / "users.json"
+    with open(users_path, "r", encoding="utf-8") as f:
+        users_data = json.load(f)
+
+    for user in users_data.get("users", []):
+        if user.get("name") == username:
+            return user
+
+    raise ValueError(f"User '{username}' not found in users.json")
 
 
 def get_comparison_data(username: str, db: Session, current_year: int = 2026) -> dict:
@@ -19,6 +38,10 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     # Get projected data from calculator engine
     projection_data = get_user_projection(username, current_year)
     projected = projection_data["projected"]
+    profile = _load_user_profile(username)
+    retirement_age = int(profile.get("retirement_age", 65))
+    current_age = int(profile.get("age", 35))
+    retirement_year = current_year + max(0, retirement_age - current_age)
     
     # Merge projected account_balances with actual account_balances
     # Create a merged account_balances map for ALL years
@@ -107,6 +130,8 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
         "projected": projected,
         "actual": actual,
         "deltas": deltas,
+        "retirement_age": retirement_age,
+        "retirement_year": retirement_year,
     }
 
 

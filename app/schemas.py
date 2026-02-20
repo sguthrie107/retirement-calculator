@@ -36,6 +36,8 @@ class ComparisonResponse(BaseModel):
     projected: list[ProjectionPoint]
     actual: list[ProjectionPoint]
     deltas: list[dict]
+    retirement_age: Optional[int] = None
+    retirement_year: Optional[int] = None
 
 
 class StressTestRecalculateRequest(BaseModel):

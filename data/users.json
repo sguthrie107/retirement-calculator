@@ -170,5 +170,29 @@
       "additional_monthly_payment_min": 1500,
       "additional_monthly_payment_max": 4500
     }
+  ],
+  "household_assets": [
+    {
+      "name": "Mortgage A",
+      "asset_type": "residential_real_estate",
+      "participants": ["Steven", "Alyssa"],
+      "include_in_individual_analysis": true,
+      "current_home_value": 293000,
+      "loan_balance": 293000,
+      "annual_interest_rate": 0.0375,
+      "monthly_payment": 1831.15,
+      "monthly_escrow": 529.84,
+      "conservative_annual_appreciation_rate": 0.025
+    }
+  ],
+  "household_retirement_spending": [
+    {
+      "name": "Steven and Alyssa Retirement Floor",
+      "participants": ["Steven", "Alyssa"],
+      "retirement_age": 65,
+      "base_year": 2026,
+      "annual_general_living_expenses": 115000,
+      "annual_medical_quality_of_life_expenses": 30000
+    }
   ]
 }
