@@ -16,7 +16,7 @@ _USERS: dict[str, str] = {
     "guest":  os.getenv("AUTH_GUEST_PASSWORD",  ""),
 }
 
-_REALM = "Guthrie Finance — Retirement"
+_REALM = "Guthrie Finance - Retirement"
 
 
 def _check_credentials(authorization: str | None) -> bool:
