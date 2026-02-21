@@ -30,6 +30,7 @@ MIN_SIMULATION_COUNT = 5000
 DEFAULT_INFLATION_PCT = 3.0
 DEFAULT_LIFE_EXPECTANCY_AGE = 88
 DEFAULT_WITHDRAWAL_PCT = 0.05
+DEFAULT_TARGET_VOLATILITY_PCT = 13.5
 DEFAULT_SUCCESS_THRESHOLD_PCT = 10.0
 POST_DEBT_CONTRIBUTION_STEP_PCT = 0.01
 POST_DEBT_CONTRIBUTION_CAP_PCT = 0.15
@@ -526,11 +527,11 @@ def run_stress_test(
     account_weight_ira = 1.0 - account_weight_401k
     blended_mean = (account_weight_401k * mu_401k_now) + (account_weight_ira * mu_ira_now)
     blended_vol = math.sqrt(((account_weight_401k * sigma_401k_now) ** 2) + ((account_weight_ira * sigma_ira_now) ** 2))
+    target_volatility = DEFAULT_TARGET_VOLATILITY_PCT / 100.0
+    volatility_uplift = max(1.0, target_volatility / max(blended_vol, 1e-8))
+    effective_blended_vol = blended_vol * volatility_uplift
 
     terminal_balances: list[float] = []
-    retirement_portfolio_balances: list[float] = []
-    terminal_portfolio_balances: list[float] = []
-    terminal_net_worth_balances: list[float] = []
     retirement_portfolio_balances: list[float] = []
     terminal_portfolio_balances: list[float] = []
     terminal_net_worth_balances: list[float] = []
@@ -563,6 +564,8 @@ def run_stress_test(
                 fund_moments,
                 retirement_age,
             )
+            sigma_401k *= volatility_uplift
+            sigma_ira *= volatility_uplift
 
             # Sequence risk mechanics:
             # 1) fat-tail draw
@@ -719,7 +722,8 @@ def run_stress_test(
             "starting_ira_balance": round(start_ira, 2),
             "starting_total_balance": round(start_total_balance, 2),
             "blended_expected_return_pct": round(blended_mean * 100.0, 3),
-            "blended_volatility_pct": round(blended_vol * 100.0, 3),
+            "blended_volatility_pct": round(effective_blended_vol * 100.0, 3),
+            "target_volatility_floor_pct": DEFAULT_TARGET_VOLATILITY_PCT,
         },
         "outcome_percentiles": {
             "retirement": {
@@ -748,7 +752,7 @@ def run_stress_test(
         simulation_count=simulation_count,
         random_seed=random_seed,
         mean_return_pct=round(blended_mean * 100.0, 4),
-        volatility_pct=round(blended_vol * 100.0, 4),
+        volatility_pct=round(effective_blended_vol * 100.0, 4),
         inflation_pct=round(inflation * 100.0, 4),
         success_probability_pct=round(success_probability, 2),
         rating_tier=rating["tier"],
@@ -907,8 +911,14 @@ def run_joint_stress_test(
         blended_mean += share * (mu_401k * 0.6 + mu_ira * 0.4)
         blended_variance += (share * (sigma_401k * 0.6 + sigma_ira * 0.4)) ** 2
     blended_vol = math.sqrt(max(blended_variance, 1e-8))
+    target_volatility = DEFAULT_TARGET_VOLATILITY_PCT / 100.0
+    volatility_uplift = max(1.0, target_volatility / max(blended_vol, 1e-8))
+    effective_blended_vol = blended_vol * volatility_uplift
 
     terminal_balances: list[float] = []
+    retirement_portfolio_balances: list[float] = []
+    terminal_portfolio_balances: list[float] = []
+    terminal_net_worth_balances: list[float] = []
     success_count = 0
 
     for sim in range(simulation_count):
@@ -1048,6 +1058,8 @@ def run_joint_stress_test(
                     fund_moments,
                     retirement_ages[i],
                 )
+                sigma_401k *= volatility_uplift
+                sigma_ira *= volatility_uplift
 
                 contrib_i = planned_contributions[i]
                 contrib_ira_i = planned_ira_contributions[i]
@@ -1206,7 +1218,8 @@ def run_joint_stress_test(
         "household_portfolio_snapshot": {
             "combined_starting_balance": round(combined_start_total, 2),
             "blended_expected_return_pct": round(blended_mean * 100.0, 3),
-            "blended_volatility_pct": round(blended_vol * 100.0, 3),
+            "blended_volatility_pct": round(effective_blended_vol * 100.0, 3),
+            "target_volatility_floor_pct": DEFAULT_TARGET_VOLATILITY_PCT,
         },
         "outcome_percentiles": {
             "retirement": {
@@ -1246,7 +1259,7 @@ def run_joint_stress_test(
         simulation_count=simulation_count,
         random_seed=random_seed,
         mean_return_pct=round(blended_mean * 100.0, 4),
-        volatility_pct=round(blended_vol * 100.0, 4),
+        volatility_pct=round(effective_blended_vol * 100.0, 4),
         inflation_pct=round(inflation * 100.0, 4),
         success_probability_pct=round(success_probability, 2),
         rating_tier=rating["tier"],
