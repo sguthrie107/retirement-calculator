@@ -234,7 +234,8 @@ def _project_phase(
         age = start_age + i
 
         employee_contrib = current_salary * contribution_pct
-        employer_match = current_salary * match_pct
+        effective_match_pct = min(match_pct, contribution_pct)
+        employer_match = current_salary * effective_match_pct
         total_contrib = employee_contrib + employer_match
 
         # Add contributions to balance
