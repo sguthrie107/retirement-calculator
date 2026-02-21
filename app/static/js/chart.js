@@ -81,7 +81,7 @@ async function loadSingleUser(username) {
         
         renderSingleUserChart(username, data);
         renderDeltaTable(data.deltas);
-        await loadStressTestResult(username);
+        await syncStressTestUiForSelection(username);
     } catch (error) {
         console.error('Error loading user data:', error);
         document.getElementById('deltaContent').innerHTML = 
@@ -988,15 +988,60 @@ function toggleAssumptions(btn) {
 const JOINT_USERNAMES = ['Steven', 'Alyssa'];
 let currentStressMode = 'individual'; // 'individual' | 'joint'
 
+function isJointSelection(username) {
+    return Boolean(username && username !== 'all' && (username.includes('+') || username.includes(',')));
+}
+
+async function syncStressTestUiForSelection(username) {
+    const tabIndividual = document.getElementById('stressTabIndividual');
+    const tabJoint = document.getElementById('stressTabJoint');
+    const recalcStressBtn = document.getElementById('recalculateStressBtn');
+    const recalcJointBtn = document.getElementById('recalculateJointBtn');
+
+    if (!tabIndividual || !tabJoint || !recalcStressBtn || !recalcJointBtn) {
+        return;
+    }
+
+    if (isJointSelection(username)) {
+        tabIndividual.style.display = 'none';
+        tabJoint.style.display = 'inline-flex';
+        currentStressMode = 'joint';
+        tabIndividual.classList.remove('active');
+        tabJoint.classList.add('active');
+        recalcStressBtn.style.display = 'none';
+        recalcJointBtn.style.display = 'inline-flex';
+        await loadJointStressTestResult();
+        return;
+    }
+
+    tabIndividual.style.display = 'inline-flex';
+    tabJoint.style.display = 'inline-flex';
+
+    if (currentStressMode !== 'individual') {
+        toggleStressMode('individual');
+        return;
+    }
+
+    tabIndividual.classList.add('active');
+    tabJoint.classList.remove('active');
+    recalcStressBtn.style.display = 'inline-flex';
+    recalcJointBtn.style.display = 'none';
+    await loadStressTestResult(username);
+}
+
 function toggleStressMode(mode) {
+    const userSelect = document.getElementById('userSelect');
+    const username = userSelect ? userSelect.value : '';
+
+    if (isJointSelection(username) && mode === 'individual') {
+        mode = 'joint';
+    }
+
     if (mode === currentStressMode) return;
     currentStressMode = mode;
 
     document.getElementById('stressTabIndividual').classList.toggle('active', mode === 'individual');
     document.getElementById('stressTabJoint').classList.toggle('active', mode === 'joint');
-
-    const userSelect = document.getElementById('userSelect');
-    const username = userSelect ? userSelect.value : '';
 
     if (mode === 'individual') {
         if (username && username !== 'all') {
@@ -1064,6 +1109,11 @@ async function recalculateStressTest() {
 
     if (!username || username === 'all') {
         alert('Please select a single user before running the stress test.');
+        return;
+    }
+
+    if (isJointSelection(username)) {
+        alert('For household selection, use Recalculate Household.');
         return;
     }
 
