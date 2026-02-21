@@ -289,15 +289,14 @@ header p {
 .chart-container {
     background: rgba(255, 252, 245, 0.94);
     padding: 2rem;
-    border-radius: 16px;
+    border-radius: 20px;
     box-shadow: var(--shadow-md);
     margin-bottom: 1.5rem;
+    margin-left: 2rem;
+    margin-right: 2rem;
     position: relative;
-    margin-left: calc(-50vw + 50%);
-    margin-right: calc(-50vw + 50%);
     height: 500px;
-    width: 100vw;
-    border: 1px solid var(--trim-soft);
+    border: 2px solid var(--trim-soft);
 }
 
 .chart-container canvas {
