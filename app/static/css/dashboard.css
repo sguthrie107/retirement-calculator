@@ -153,6 +153,8 @@
     --trim-soft: #E6D3A1;
     --silver: #C0C5CE;
     --silver-light: #E5E7EB;
+    --dot-grid-color: rgba(31, 58, 138, 0.32);
+    --dot-grid-color-soft: rgba(31, 58, 138, 0.22);
 }
 
 body {
@@ -161,6 +163,93 @@ body {
     color: var(--text-primary);
     line-height: 1.6;
     min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+body::before,
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-repeat: repeat;
+}
+
+body::before {
+    background-image:
+        radial-gradient(circle, var(--dot-grid-color) 1.2px, transparent 1.3px);
+    background-size: 26px 26px;
+    animation: dot-wave-primary 18s ease-in-out infinite;
+    opacity: 0.8;
+}
+
+body::after {
+    background-image:
+        radial-gradient(circle, var(--dot-grid-color-soft) 1px, transparent 1.1px);
+    background-size: 26px 26px;
+    background-position: 13px 13px;
+    animation: dot-wave-secondary 24s ease-in-out infinite reverse;
+    opacity: 0.7;
+}
+
+body > * {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes dot-wave-primary {
+    0% {
+        background-position: 0 0;
+        transform: translateY(0px);
+    }
+    25% {
+        background-position: 24px -8px;
+        transform: translateY(-8px);
+    }
+    50% {
+        background-position: 48px 0;
+        transform: translateY(0px);
+    }
+    75% {
+        background-position: 24px 8px;
+        transform: translateY(8px);
+    }
+    100% {
+        background-position: 0 0;
+        transform: translateY(0px);
+    }
+}
+
+@keyframes dot-wave-secondary {
+    0% {
+        background-position: 13px 13px;
+        transform: translateY(0px);
+    }
+    25% {
+        background-position: -11px 20px;
+        transform: translateY(6px);
+    }
+    50% {
+        background-position: -35px 13px;
+        transform: translateY(0px);
+    }
+    75% {
+        background-position: -11px 6px;
+        transform: translateY(-6px);
+    }
+    100% {
+        background-position: 13px 13px;
+        transform: translateY(0px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body::before,
+    body::after {
+        animation: none;
+    }
 }
 
 .container {
