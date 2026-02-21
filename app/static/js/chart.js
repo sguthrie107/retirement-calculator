@@ -122,6 +122,7 @@ async function loadAllUsers() {
 function renderSingleUserChart(username, data, matchScenarios = null) {
     const ctx = document.getElementById('retirementChart');
     const retirementYear = Number.isFinite(Number(data.retirement_year)) ? Number(data.retirement_year) : null;
+    const isMobileViewport = window.innerWidth <= 768;
     
     // Destroy existing chart if it exists
     if (chartInstance) {
@@ -299,8 +300,8 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     borderWidth: 3,
                     fill: false,
                     tension: 0.4,
-                    pointRadius: 6,
-                    pointHoverRadius: 10,
+                    pointRadius: isMobileViewport ? 4 : 6,
+                    pointHoverRadius: isMobileViewport ? 7 : 10,
                     pointBackgroundColor: differencePointColors,
                     pointBorderColor: '#FFFFFF',
                     pointBorderWidth: 2,
@@ -320,11 +321,13 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     retirementYear: retirementYear
                 },
                 legend: {
-                    position: 'top',
+                    position: isMobileViewport ? 'bottom' : 'top',
                     labels: {
                         color: '#0F172A',
-                        font: { size: 14, weight: '600' },
-                        padding: 20,
+                        font: { size: isMobileViewport ? 11 : 14, weight: '600' },
+                        padding: isMobileViewport ? 10 : 20,
+                        boxWidth: isMobileViewport ? 14 : 20,
+                        boxHeight: isMobileViewport ? 8 : 12,
                         usePointStyle: true,
                         pointStyle: 'circle',
                         generateLabels: function(chart) {
@@ -359,15 +362,15 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     bodyColor: '#E2E8F0',
                     borderColor: '#334155',
                     borderWidth: 1,
-                    padding: 16,
+                    padding: isMobileViewport ? 10 : 16,
                     cornerRadius: 12,
                     displayColors: true,
                     usePointStyle: true,
                     boxPadding: 6,
                     titleMarginBottom: 10,
                     bodySpacing: 6,
-                    titleFont: { size: 14, weight: '700' },
-                    bodyFont: { size: 13, weight: '600' },
+                    titleFont: { size: isMobileViewport ? 12 : 14, weight: '700' },
+                    bodyFont: { size: isMobileViewport ? 11 : 13, weight: '600' },
                     callbacks: {
                         title: function(context) {
                             return 'Year ' + context[0].label;
@@ -442,7 +445,9 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     },
                     ticks: {
                         color: '#6B6B6B',
-                        font: { size: 12 }
+                        font: { size: isMobileViewport ? 10 : 12 },
+                        autoSkip: true,
+                        maxTicksLimit: isMobileViewport ? 5 : 10
                     }
                 },
                 y: {
@@ -454,7 +459,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     },
                     ticks: {
                         color: '#6B6B6B',
-                        font: { size: 12 },
+                        font: { size: isMobileViewport ? 10 : 12 },
                         callback: function(value) {
                             return new Intl.NumberFormat('en-US', {
                                 style: 'currency',
@@ -480,6 +485,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
 
 function renderAllUsersChart(usersData) {
     const ctx = document.getElementById('retirementChart');
+    const isMobileViewport = window.innerWidth <= 768;
     
     // Destroy existing chart if it exists
     if (chartInstance) {
@@ -559,11 +565,11 @@ function renderAllUsersChart(usersData) {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'top',
+                    position: isMobileViewport ? 'bottom' : 'top',
                     labels: {
                         color: '#0F172A',
-                        font: { size: 14, weight: '600' },
-                        padding: 20,
+                        font: { size: isMobileViewport ? 11 : 14, weight: '600' },
+                        padding: isMobileViewport ? 10 : 20,
                         usePointStyle: true,
                         pointStyle: 'circle',
                     },
