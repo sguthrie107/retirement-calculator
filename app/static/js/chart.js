@@ -958,13 +958,17 @@ function renderStressTestResult(result) {
                     </div>
 
                     <div class="assumptions-group">
-                        <div class="assumptions-group-title">Outcome Percentiles</div>
-                        <div class="assump-row"><span>Retirement P10</span><span>${formatCurrency(retirementP10)}</span></div>
-                        <div class="assump-row"><span>Retirement P50</span><span>${formatCurrency(retirementP50)}</span></div>
-                        <div class="assump-row"><span>Retirement P90</span><span>${formatCurrency(retirementP90)}</span></div>
-                        <div class="assump-row"><span>Life P10</span><span>${formatCurrency(lifeP10)}</span></div>
-                        <div class="assump-row"><span>Life P50</span><span>${formatCurrency(lifeP50)}</span></div>
-                        <div class="assump-row"><span>Life P90</span><span>${formatCurrency(lifeP90)}</span></div>
+                        <div class="assumptions-group-title">Retirement Outcome Percentiles</div>
+                        <div class="assump-row"><span>P10 (Pessimistic)</span><span>${formatCurrency(retirementP10)}</span></div>
+                        <div class="assump-row"><span>P50 (Median)</span><span>${formatCurrency(retirementP50)}</span></div>
+                        <div class="assump-row"><span>P90 (Optimistic)</span><span>${formatCurrency(retirementP90)}</span></div>
+                    </div>
+
+                    <div class="assumptions-group">
+                        <div class="assumptions-group-title">Life Outcome Percentiles</div>
+                        <div class="assump-row"><span>P10 (Pessimistic)</span><span>${formatCurrency(lifeP10)}</span></div>
+                        <div class="assump-row"><span>P50 (Median)</span><span>${formatCurrency(lifeP50)}</span></div>
+                        <div class="assump-row"><span>P90 (Optimistic)</span><span>${formatCurrency(lifeP90)}</span></div>
                     </div>
                 </div>
             </div>
