@@ -241,8 +241,8 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     const matchDatasets = [];
     if (matchScenarios) {
         const scenarioConfigs = [
-            { key: '3pct', label: '+3% 401k Contribution', color: '#16A34A', order: 2 },
-            { key: '5pct', label: '+5% 401k Contribution', color: '#0D9488', order: 3 },
+            { key: '3pct', label: '+3% 401k Contribution', color: '#0F766E', order: 2 },
+            { key: '5pct', label: '+5% 401k Contribution', color: '#7C3AED', order: 3 },
         ];
         for (const cfg of scenarioConfigs) {
             if (matchScenarios[cfg.key]) {
