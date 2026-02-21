@@ -458,6 +458,7 @@ def retirement_401k_full_plan(
     current_year: int = None,
     post_retirement_years: int = 0,
     withdrawal_pct: float = None,
+    match_pct_override: float = None,
 ) -> DataFrame:
     """
     Run a complete 3-phase 401k projection for a stored user.
@@ -470,6 +471,7 @@ def retirement_401k_full_plan(
         current_year:          Override starting calendar year
         post_retirement_years: Number of years to project after retirement (0 contributions)
         withdrawal_pct:        Override withdrawal rate (uses user's setting if None)
+        match_pct_override:    Override employer match rate (decimal, e.g. 0.03 for 3%)
 
     Returns:
         Single DataFrame spanning all phases from current age to retirement (+ post-retirement)
@@ -505,6 +507,8 @@ def retirement_401k_full_plan(
         if age >= end_age:
             continue
 
+        effective_match_pct = match_pct_override if match_pct_override is not None else contrib["company_match_pct"]
+
         df, balance, salary = _project_phase(
             start_balance=balance,
             start_age=age,
@@ -512,7 +516,7 @@ def retirement_401k_full_plan(
             start_year=year,
             salary=salary,
             contribution_pct=contrib["annual_contribution_pct"],
-            match_pct=contrib["company_match_pct"],
+            match_pct=effective_match_pct,
             salary_increase_pct=contrib["salary_increase_pct"],
             allocation=phase_cfg["allocation"],
             beneficiary=beneficiary,

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..services.comparison import get_comparison_data, get_all_users_comparison
+from ..services.projection import get_match_scenario_projections
 from ..schemas import ComparisonResponse
 
 router = APIRouter(prefix="/api")
@@ -34,6 +35,20 @@ async def get_comparison(username: str, db: Session = Depends(get_db)):
             print(f"DEBUG: First delta keys: {data['deltas'][0].keys()}")
             print(f"DEBUG: First delta: {data['deltas'][0]}")
         return data
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@router.get("/match-scenarios/{username}")
+async def get_match_scenarios(username: str):
+    """
+    Return projected balances under 3% and 5% employer 401k match scenarios.
+    Useful for showing the benefit of a company match on the chart.
+    """
+    try:
+        return get_match_scenario_projections(username)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

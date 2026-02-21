@@ -66,20 +66,32 @@ async function loadSingleUser(username) {
         console.log('loadSingleUser called for:', username);
         const apiUrl = `/api/comparison/${username}`;
         console.log('Fetching from:', apiUrl);
-        
-        const response = await fetch(apiUrl);
+
+        // Fetch comparison data and (for Steven) match scenarios in parallel
+        const fetchComparison = fetch(apiUrl);
+        const fetchScenarios = (username === 'Steven')
+            ? fetch(`/api/match-scenarios/${username}`)
+            : Promise.resolve(null);
+
+        const [response, scenariosResponse] = await Promise.all([fetchComparison, fetchScenarios]);
         console.log('API response:', response.status, response.statusText);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const data = await response.json();
         console.log('API response received. Data:', data);
         console.log('Projected data points:', data.projected ? data.projected.length : 'none');
         console.log('Deltas from API:', data.deltas);
-        
-        renderSingleUserChart(username, data);
+
+        let matchScenarios = null;
+        if (scenariosResponse && scenariosResponse.ok) {
+            matchScenarios = await scenariosResponse.json();
+            console.log('Match scenarios loaded:', matchScenarios ? Object.keys(matchScenarios) : 'none');
+        }
+
+        renderSingleUserChart(username, data, matchScenarios);
         renderDeltaTable(data.deltas);
         await syncStressTestUiForSelection(username);
     } catch (error) {
@@ -107,7 +119,7 @@ async function loadAllUsers() {
     }
 }
 
-function renderSingleUserChart(username, data) {
+function renderSingleUserChart(username, data, matchScenarios = null) {
     const ctx = document.getElementById('retirementChart');
     const retirementYear = Number.isFinite(Number(data.retirement_year)) ? Number(data.retirement_year) : null;
     
@@ -225,12 +237,45 @@ function renderSingleUserChart(username, data) {
         }
     };
 
+    // Build match scenario datasets (dotted lines, only when data provided)
+    const matchDatasets = [];
+    if (matchScenarios) {
+        const scenarioConfigs = [
+            { key: '3pct', label: '+3% Company Match', color: '#16A34A', order: 3 },
+            { key: '5pct', label: '+5% Company Match', color: '#0D9488', order: 2 },
+        ];
+        for (const cfg of scenarioConfigs) {
+            if (matchScenarios[cfg.key]) {
+                const byYear = {};
+                matchScenarios[cfg.key].forEach(d => { byYear[d.year] = d.balance; });
+                matchDatasets.push({
+                    label: cfg.label,
+                    data: years.map(y => byYear[y] ?? null),
+                    borderColor: cfg.color,
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    borderDash: [7, 5],
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 7,
+                    pointHoverBackgroundColor: cfg.color,
+                    pointHoverBorderColor: '#FFFFFF',
+                    pointHoverBorderWidth: 2,
+                    spanGaps: true,
+                    order: cfg.order,
+                });
+            }
+        }
+    }
+
     chartInstance = new Chart(ctx, {
         type: 'line',
         plugins: [retirementMarkerPlugin],
         data: {
             labels: years,
             datasets: [
+                ...matchDatasets,
                 {
                     label: `${username} - Projected Balance`,
                     data: projectedData,
