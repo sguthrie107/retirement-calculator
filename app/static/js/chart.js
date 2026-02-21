@@ -874,6 +874,16 @@ function renderStressTestResult(result) {
     const successDef = result.assumptions?.success_definition || {};
     const debtPaydown = result.assumptions?.debt_paydown || {};
     const debtItem = debtPaydown.debts && debtPaydown.debts.length > 0 ? debtPaydown.debts[0] : null;
+    const outcomes = result.assumptions?.outcome_percentiles || {};
+    const retirementOutcomes = outcomes.retirement || null;
+    const lifeOutcomes = outcomes.life || null;
+
+    const retirementP10 = retirementOutcomes ? retirementOutcomes.p10 : result.p10_terminal_balance;
+    const retirementP50 = retirementOutcomes ? retirementOutcomes.p50 : result.p50_terminal_balance;
+    const retirementP90 = retirementOutcomes ? retirementOutcomes.p90 : result.p90_terminal_balance;
+    const lifeP10 = lifeOutcomes ? lifeOutcomes.p10 : result.p10_terminal_balance;
+    const lifeP50 = lifeOutcomes ? lifeOutcomes.p50 : result.p50_terminal_balance;
+    const lifeP90 = lifeOutcomes ? lifeOutcomes.p90 : result.p90_terminal_balance;
 
     const assumptionsHtml = `
         <div class="assumptions-section">
@@ -949,9 +959,12 @@ function renderStressTestResult(result) {
 
                     <div class="assumptions-group">
                         <div class="assumptions-group-title">Outcome Percentiles</div>
-                        <div class="assump-row"><span>P10 (Pessimistic)</span><span>${formatCurrency(result.p10_terminal_balance)}</span></div>
-                        <div class="assump-row"><span>P50 (Median)</span><span>${formatCurrency(result.p50_terminal_balance)}</span></div>
-                        <div class="assump-row"><span>P90 (Optimistic)</span><span>${formatCurrency(result.p90_terminal_balance)}</span></div>
+                        <div class="assump-row"><span>Retirement P10</span><span>${formatCurrency(retirementP10)}</span></div>
+                        <div class="assump-row"><span>Retirement P50</span><span>${formatCurrency(retirementP50)}</span></div>
+                        <div class="assump-row"><span>Retirement P90</span><span>${formatCurrency(retirementP90)}</span></div>
+                        <div class="assump-row"><span>Life P10</span><span>${formatCurrency(lifeP10)}</span></div>
+                        <div class="assump-row"><span>Life P50</span><span>${formatCurrency(lifeP50)}</span></div>
+                        <div class="assump-row"><span>Life P90</span><span>${formatCurrency(lifeP90)}</span></div>
                     </div>
                 </div>
             </div>
@@ -1003,8 +1016,12 @@ function renderStressTestResult(result) {
                     <span class="stress-meta-value">${Number(result.inflation_pct).toFixed(2)}%</span>
                 </div>
                 <div class="stress-meta-item">
-                    <span class="stress-meta-label">Terminal P50</span>
-                    <span class="stress-meta-value">${formatCurrency(result.p50_terminal_balance)}</span>
+                    <span class="stress-meta-label">Retirement P50</span>
+                    <span class="stress-meta-value">${formatCurrency(retirementP50)}</span>
+                </div>
+                <div class="stress-meta-item">
+                    <span class="stress-meta-label">Life P50</span>
+                    <span class="stress-meta-value">${formatCurrency(lifeP50)}</span>
                 </div>
                 <div class="stress-meta-item">
                     <span class="stress-meta-label">Last Calculated</span>

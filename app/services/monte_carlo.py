@@ -528,6 +528,12 @@ def run_stress_test(
     blended_vol = math.sqrt(((account_weight_401k * sigma_401k_now) ** 2) + ((account_weight_ira * sigma_ira_now) ** 2))
 
     terminal_balances: list[float] = []
+    retirement_portfolio_balances: list[float] = []
+    terminal_portfolio_balances: list[float] = []
+    terminal_net_worth_balances: list[float] = []
+    retirement_portfolio_balances: list[float] = []
+    terminal_portfolio_balances: list[float] = []
+    terminal_net_worth_balances: list[float] = []
     success_count = 0
 
     for sim in range(simulation_count):
@@ -586,6 +592,7 @@ def run_stress_test(
             else:
                 if retirement_start_balance is None:
                     retirement_start_balance = total_balance + housing_equity
+                    retirement_portfolio_balances.append(total_balance)
                     annual_withdrawal = total_balance * withdrawal_pct
                 else:
                     annual_withdrawal *= (1.0 + inflation)
@@ -629,8 +636,14 @@ def run_stress_test(
 
             age += 1
 
-        terminal_balance = bal_401k + bal_ira + housing_total_equity(housing_asset_states)
+        terminal_portfolio_balance = bal_401k + bal_ira
+        terminal_balance = terminal_portfolio_balance + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
+        terminal_portfolio_balances.append(terminal_portfolio_balance)
+        terminal_net_worth_balances.append(terminal_balance)
+
+        if retirement_start_balance is None:
+            retirement_portfolio_balances.append(terminal_portfolio_balance)
 
         years_in_retirement = max(0, life_expectancy_age - retirement_age)
         real_terminal = terminal_balance / ((1.0 + inflation) ** years_in_retirement) if years_in_retirement > 0 else terminal_balance
@@ -707,6 +720,26 @@ def run_stress_test(
             "starting_total_balance": round(start_total_balance, 2),
             "blended_expected_return_pct": round(blended_mean * 100.0, 3),
             "blended_volatility_pct": round(blended_vol * 100.0, 3),
+        },
+        "outcome_percentiles": {
+            "retirement": {
+                "label": "At Retirement (Portfolio)",
+                "p10": round(percentile(sorted(retirement_portfolio_balances), 0.10), 2),
+                "p50": round(percentile(sorted(retirement_portfolio_balances), 0.50), 2),
+                "p90": round(percentile(sorted(retirement_portfolio_balances), 0.90), 2),
+            },
+            "life": {
+                "label": "At Life Expectancy (Portfolio)",
+                "p10": round(percentile(sorted(terminal_portfolio_balances), 0.10), 2),
+                "p50": round(percentile(sorted(terminal_portfolio_balances), 0.50), 2),
+                "p90": round(percentile(sorted(terminal_portfolio_balances), 0.90), 2),
+            },
+            "life_net_worth": {
+                "label": "At Life Expectancy (Portfolio + Housing)",
+                "p10": round(percentile(sorted(terminal_net_worth_balances), 0.10), 2),
+                "p50": round(percentile(sorted(terminal_net_worth_balances), 0.50), 2),
+                "p90": round(percentile(sorted(terminal_net_worth_balances), 0.90), 2),
+            },
         },
     }
 
@@ -947,6 +980,7 @@ def run_joint_stress_test(
             if all_members_retired:
                 if retirement_start_balance is None:
                     retirement_start_balance = total_household + housing_equity
+                    retirement_portfolio_balances.append(total_household)
                     annual_withdrawal = total_household * withdrawal_pct
                 else:
                     annual_withdrawal *= (1.0 + inflation)
@@ -1050,8 +1084,14 @@ def run_joint_stress_test(
 
             ages = [a + 1 for a in ages]
 
-        terminal_balance = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles))) + housing_total_equity(housing_asset_states)
+        terminal_portfolio_balance = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles)))
+        terminal_balance = terminal_portfolio_balance + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
+        terminal_portfolio_balances.append(terminal_portfolio_balance)
+        terminal_net_worth_balances.append(terminal_balance)
+
+        if retirement_start_balance is None:
+            retirement_portfolio_balances.append(terminal_portfolio_balance)
 
         years_in_retirement = max(0, life_expectancy_age - max(retirement_ages))
         real_terminal = (
@@ -1167,6 +1207,26 @@ def run_joint_stress_test(
             "combined_starting_balance": round(combined_start_total, 2),
             "blended_expected_return_pct": round(blended_mean * 100.0, 3),
             "blended_volatility_pct": round(blended_vol * 100.0, 3),
+        },
+        "outcome_percentiles": {
+            "retirement": {
+                "label": "At Retirement (Household Portfolio)",
+                "p10": round(percentile(sorted(retirement_portfolio_balances), 0.10), 2),
+                "p50": round(percentile(sorted(retirement_portfolio_balances), 0.50), 2),
+                "p90": round(percentile(sorted(retirement_portfolio_balances), 0.90), 2),
+            },
+            "life": {
+                "label": "At Life Expectancy (Household Portfolio)",
+                "p10": round(percentile(sorted(terminal_portfolio_balances), 0.10), 2),
+                "p50": round(percentile(sorted(terminal_portfolio_balances), 0.50), 2),
+                "p90": round(percentile(sorted(terminal_portfolio_balances), 0.90), 2),
+            },
+            "life_net_worth": {
+                "label": "At Life Expectancy (Household + Housing)",
+                "p10": round(percentile(sorted(terminal_net_worth_balances), 0.10), 2),
+                "p50": round(percentile(sorted(terminal_net_worth_balances), 0.50), 2),
+                "p90": round(percentile(sorted(terminal_net_worth_balances), 0.90), 2),
+            },
         },
         "members": members_snapshot,
     }
