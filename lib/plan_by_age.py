@@ -198,6 +198,7 @@ def _project_phase(
     allocation: Dict[str, Dict],
     beneficiary: str,
     phase_label: str,
+    match_basis: str = "salary",
 ) -> Tuple[DataFrame, float, float]:
     """
     Project 401k balance year-by-year for a single phase with dividend/yield reinvestment.
@@ -213,6 +214,7 @@ def _project_phase(
         salary:             Annual salary at phase start
         contribution_pct:   Employee contribution rate (decimal)
         match_pct:          Employer match rate (decimal)
+        match_basis:        'salary' => % of salary; 'employee' => % of employee contribution
         salary_increase_pct: Annual salary growth rate (decimal)
         allocation:         Dict of asset_class → {pct, ticker}
         beneficiary:        Name for labeling rows
@@ -234,23 +236,27 @@ def _project_phase(
         age = start_age + i
 
         employee_contrib = current_salary * contribution_pct
-        effective_match_pct = min(match_pct, contribution_pct)
-        employer_match = current_salary * effective_match_pct
+        if match_basis == "employee":
+            employer_match = employee_contrib * match_pct
+        else:
+            effective_match_pct = min(match_pct, contribution_pct)
+            employer_match = current_salary * effective_match_pct
         total_contrib = employee_contrib + employer_match
 
-        # Add contributions to balance
-        balance += total_contrib
-        
+        # Model periodic contributions through the year instead of an upfront lump sum.
+        # Use a mid-year convention so contributions receive ~half-year growth on average.
+        growth_base = balance + (total_contrib / 2)
+
         # Calculate separate components of growth
         # 1. Dividend/coupon yield (reinvested)
-        dividend_income = balance * blended_yield
-        
+        dividend_income = growth_base * blended_yield
+
         # 2. Price appreciation
-        price_appreciation = balance * blended_appreciation
+        price_appreciation = growth_base * blended_appreciation
         
         # Total growth
         growth = dividend_income + price_appreciation
-        balance += growth
+        balance += total_contrib + growth
         
         # Track years since last rebalance for metadata
         years_since_rebalance += 1
@@ -460,6 +466,7 @@ def retirement_401k_full_plan(
     post_retirement_years: int = 0,
     withdrawal_pct: float = None,
     match_pct_override: float = None,
+    match_basis: str = "salary",
 ) -> DataFrame:
     """
     Run a complete 3-phase 401k projection for a stored user.
@@ -473,6 +480,7 @@ def retirement_401k_full_plan(
         post_retirement_years: Number of years to project after retirement (0 contributions)
         withdrawal_pct:        Override withdrawal rate (uses user's setting if None)
         match_pct_override:    Override employer match rate (decimal, e.g. 0.03 for 3%)
+        match_basis:           'salary' => % of salary; 'employee' => % of employee contribution
 
     Returns:
         Single DataFrame spanning all phases from current age to retirement (+ post-retirement)
@@ -518,6 +526,7 @@ def retirement_401k_full_plan(
             salary=salary,
             contribution_pct=contrib["annual_contribution_pct"],
             match_pct=effective_match_pct,
+            match_basis=match_basis,
             salary_increase_pct=contrib["salary_increase_pct"],
             allocation=phase_cfg["allocation"],
             beneficiary=beneficiary,
@@ -541,6 +550,7 @@ def retirement_401k_full_plan(
             salary=0,  # No salary in retirement
             contribution_pct=0,  # No contributions
             match_pct=0,
+            match_basis="salary",
             salary_increase_pct=0,
             allocation=phase_cfg["allocation"],
             beneficiary=beneficiary,

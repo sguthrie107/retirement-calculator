@@ -63,14 +63,20 @@ def get_user_projection(username: str, current_year: int = 2026) -> dict:
 
 def get_match_scenario_projections(username: str, current_year: int = 2026) -> dict:
     """
-    Return projected totals for 3% and 5% employer 401k match scenarios.
-    IRA projections are shared (match doesn't affect IRA), only 401k differs.
+    Return projected totals for 3% and 5% employer periodic-contribution boosts.
+    Scenarios apply to employee contribution flow (periodic match behavior),
+    while IRA projections remain unchanged.
     """
     df_ira = retirement_ira_full_plan(username, current_year=current_year)
 
     scenarios = {}
     for key, pct in [("3pct", 0.03), ("5pct", 0.05)]:
-        df_401k = retirement_401k_full_plan(username, current_year=current_year, match_pct_override=pct)
+        df_401k = retirement_401k_full_plan(
+            username,
+            current_year=current_year,
+            match_pct_override=pct,
+            match_basis="employee",
+        )
         merged = merge_projections(df_401k, df_ira, current_year=current_year)
         scenarios[key] = [
             {"year": int(row["year"]), "balance": round(float(row["total_balance"]), 2)}
