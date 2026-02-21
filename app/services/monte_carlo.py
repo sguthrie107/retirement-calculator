@@ -535,6 +535,8 @@ def run_stress_test(
     retirement_portfolio_balances: list[float] = []
     terminal_portfolio_balances: list[float] = []
     terminal_net_worth_balances: list[float] = []
+    non_depleted_terminal_portfolio_balances: list[float] = []
+    non_depleted_terminal_net_worth_balances: list[float] = []
     success_count = 0
 
     for sim in range(simulation_count):
@@ -644,6 +646,10 @@ def run_stress_test(
         terminal_balances.append(terminal_balance)
         terminal_portfolio_balances.append(terminal_portfolio_balance)
         terminal_net_worth_balances.append(terminal_balance)
+        if not failed and terminal_portfolio_balance > 0:
+            non_depleted_terminal_portfolio_balances.append(terminal_portfolio_balance)
+        if not failed and terminal_balance > 0:
+            non_depleted_terminal_net_worth_balances.append(terminal_balance)
 
         if retirement_start_balance is None:
             retirement_portfolio_balances.append(terminal_portfolio_balance)
@@ -734,15 +740,15 @@ def run_stress_test(
             },
             "life": {
                 "label": "At Life Expectancy (Portfolio)",
-                "p10": round(percentile(sorted(terminal_portfolio_balances), 0.10), 2),
-                "p50": round(percentile(sorted(terminal_portfolio_balances), 0.50), 2),
-                "p90": round(percentile(sorted(terminal_portfolio_balances), 0.90), 2),
+                "p10": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.10), 2),
+                "p50": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.50), 2),
+                "p90": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.90), 2),
             },
             "life_net_worth": {
                 "label": "At Life Expectancy (Portfolio + Housing)",
-                "p10": round(percentile(sorted(terminal_net_worth_balances), 0.10), 2),
-                "p50": round(percentile(sorted(terminal_net_worth_balances), 0.50), 2),
-                "p90": round(percentile(sorted(terminal_net_worth_balances), 0.90), 2),
+                "p10": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.10), 2),
+                "p50": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.50), 2),
+                "p90": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.90), 2),
             },
         },
     }
@@ -919,6 +925,8 @@ def run_joint_stress_test(
     retirement_portfolio_balances: list[float] = []
     terminal_portfolio_balances: list[float] = []
     terminal_net_worth_balances: list[float] = []
+    non_depleted_terminal_portfolio_balances: list[float] = []
+    non_depleted_terminal_net_worth_balances: list[float] = []
     success_count = 0
 
     for sim in range(simulation_count):
@@ -1101,6 +1109,10 @@ def run_joint_stress_test(
         terminal_balances.append(terminal_balance)
         terminal_portfolio_balances.append(terminal_portfolio_balance)
         terminal_net_worth_balances.append(terminal_balance)
+        if not failed and terminal_portfolio_balance > 0:
+            non_depleted_terminal_portfolio_balances.append(terminal_portfolio_balance)
+        if not failed and terminal_balance > 0:
+            non_depleted_terminal_net_worth_balances.append(terminal_balance)
 
         if retirement_start_balance is None:
             retirement_portfolio_balances.append(terminal_portfolio_balance)
@@ -1230,15 +1242,15 @@ def run_joint_stress_test(
             },
             "life": {
                 "label": "At Life Expectancy (Household Portfolio)",
-                "p10": round(percentile(sorted(terminal_portfolio_balances), 0.10), 2),
-                "p50": round(percentile(sorted(terminal_portfolio_balances), 0.50), 2),
-                "p90": round(percentile(sorted(terminal_portfolio_balances), 0.90), 2),
+                "p10": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.10), 2),
+                "p50": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.50), 2),
+                "p90": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.90), 2),
             },
             "life_net_worth": {
                 "label": "At Life Expectancy (Household + Housing)",
-                "p10": round(percentile(sorted(terminal_net_worth_balances), 0.10), 2),
-                "p50": round(percentile(sorted(terminal_net_worth_balances), 0.50), 2),
-                "p90": round(percentile(sorted(terminal_net_worth_balances), 0.90), 2),
+                "p10": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.10), 2),
+                "p50": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.50), 2),
+                "p90": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.90), 2),
             },
         },
         "members": members_snapshot,

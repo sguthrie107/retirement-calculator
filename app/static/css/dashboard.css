@@ -263,13 +263,13 @@ header {
     position: relative;
     overflow: hidden;
     background:
-        linear-gradient(120deg, rgba(235, 179, 73, 0.18) 0%, rgba(235, 179, 73, 0.00) 45%),
-        linear-gradient(315deg, rgba(178, 34, 34, 0.30) 0%, rgba(95, 14, 14, 0.62) 42%, rgba(20, 18, 22, 0.95) 100%);
-    border-bottom: 2px solid #D9A441;
+        linear-gradient(120deg, rgba(217, 164, 65, 0.14) 0%, rgba(217, 164, 65, 0.00) 48%),
+        linear-gradient(315deg, rgba(31, 58, 138, 0.95) 0%, rgba(20, 35, 92, 0.95) 58%, rgba(14, 24, 66, 0.98) 100%);
+    border-bottom: 2px solid var(--trim-color);
     padding: 1.5rem 0;
     margin-bottom: 2rem;
     backdrop-filter: blur(10px);
-    box-shadow: 0 10px 28px rgba(48, 16, 16, 0.35);
+    box-shadow: 0 10px 28px rgba(17, 24, 39, 0.24);
 }
 
 header::before {
@@ -280,12 +280,12 @@ header::before {
     background:
         repeating-linear-gradient(
             135deg,
-            rgba(217, 164, 65, 0.18) 0,
-            rgba(217, 164, 65, 0.18) 10px,
+            rgba(217, 164, 65, 0.15) 0,
+            rgba(217, 164, 65, 0.15) 10px,
             rgba(0, 0, 0, 0.0) 10px,
             rgba(0, 0, 0, 0.0) 28px
         );
-    opacity: 0.26;
+    opacity: 0.2;
 }
 
 header .container {
@@ -297,13 +297,13 @@ header .container {
 header h1 {
     font-size: 1.75rem;
     font-weight: 700;
-    color: #F5EAD2;
+    color: #F8F5EE;
     margin-bottom: 0.25rem;
     text-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 }
 
 header p {
-    color: #EAD8B4;
+    color: #E7DECB;
     font-size: 0.95rem;
     font-weight: 400;
     text-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
