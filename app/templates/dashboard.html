@@ -161,11 +161,15 @@
             const stressSection = document.getElementById('stressTestSection');
             if (stressSection) stressSection.style.display = 'block';
             
-            // Render chart and table
-            renderSingleUserChart(selectedUserInit, initialData);
-            renderDeltaTable(initialData.deltas);
-            if (typeof window.loadStressTestResult === 'function') {
-                window.loadStressTestResult(selectedUserInit);
+            // Render via standard loader so all scenario overlays are fetched
+            if (typeof window.loadSingleUser === 'function') {
+                window.loadSingleUser(selectedUserInit);
+            } else {
+                renderSingleUserChart(selectedUserInit, initialData);
+                renderDeltaTable(initialData.deltas);
+                if (typeof window.loadStressTestResult === 'function') {
+                    window.loadStressTestResult(selectedUserInit);
+                }
             }
         } catch (error) {
             const deltaContent = document.getElementById('deltaContent');

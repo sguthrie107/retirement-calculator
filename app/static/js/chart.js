@@ -1451,6 +1451,7 @@ async function deleteBalance(balanceIdStr, year) {
 
 if (typeof window !== 'undefined') {
     window.loadUserData = loadUserData;
+    window.loadSingleUser = loadSingleUser;
     window.showBalanceForm = showBalanceForm;
     window.hideBalanceForm = hideBalanceForm;
     window.submitBalance = submitBalance;
