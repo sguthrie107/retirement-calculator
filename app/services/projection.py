@@ -61,7 +61,11 @@ def get_user_projection(username: str, current_year: int = 2026) -> dict:
         raise ValueError(f"Failed to compute projection for {username}: {str(e)}")
 
 
-def get_match_scenario_projections(username: str, current_year: int = 2026) -> dict:
+def get_match_scenario_projections(
+    username: str,
+    current_year: int = 2026,
+    scale_factor: float | None = None,
+) -> dict:
     """
     Return projected totals for 3% and 5% employer periodic-contribution boosts.
     Scenarios apply to employee contribution flow (periodic match behavior),
@@ -70,6 +74,7 @@ def get_match_scenario_projections(username: str, current_year: int = 2026) -> d
     df_ira = retirement_ira_full_plan(username, current_year=current_year)
 
     scenarios = {}
+    effective_scale = float(scale_factor) if scale_factor and scale_factor > 0 else 1.0
     for key, pct in [("3pct", 0.03), ("5pct", 0.05)]:
         df_401k = retirement_401k_full_plan(
             username,
@@ -79,7 +84,10 @@ def get_match_scenario_projections(username: str, current_year: int = 2026) -> d
         )
         merged = merge_projections(df_401k, df_ira, current_year=current_year)
         scenarios[key] = [
-            {"year": int(row["year"]), "balance": round(float(row["total_balance"]), 2)}
+            {
+                "year": int(row["year"]),
+                "balance": round(float(row["total_balance"]) * effective_scale, 2),
+            }
             for _, row in merged.iterrows()
         ]
     return scenarios
