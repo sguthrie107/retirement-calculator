@@ -17,6 +17,7 @@ _USERS: dict[str, str] = {
 }
 
 _REALM = "Guthrie Finance - Retirement"
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _check_credentials(authorization: str | None) -> bool:
@@ -43,9 +44,13 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path == "/health":
             return await call_next(request)
 
+        # Local development convenience: skip auth for localhost access.
+        if request.url.hostname in _LOCAL_HOSTS:
+            return await call_next(request)
+
         if not _check_credentials(request.headers.get("authorization")):
             return Response(
-                content="Unauthorized — please log in.",
+                content="Unauthorized - please log in.",
                 status_code=401,
                 headers={"WWW-Authenticate": f'Basic realm="{_REALM}"'},
             )
