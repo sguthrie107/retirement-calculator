@@ -241,8 +241,8 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     const matchDatasets = [];
     if (matchScenarios) {
         const scenarioConfigs = [
-            { key: '5pct', label: '+5% Company Match', color: '#0D9488', order: 2 },
-            { key: '3pct', label: '+3% Company Match', color: '#16A34A', order: 3 },
+            { key: '3pct', label: '+3% Company Match', color: '#16A34A', order: 2 },
+            { key: '5pct', label: '+5% Company Match', color: '#0D9488', order: 3 },
         ];
         for (const cfg of scenarioConfigs) {
             if (matchScenarios[cfg.key]) {
