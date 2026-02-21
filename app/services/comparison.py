@@ -1,6 +1,7 @@
 """Comparison service - merges actual vs projected data."""
 import json
 from pathlib import Path
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 from ..models import User, Account, ActualBalance
@@ -9,6 +10,16 @@ from .projection import get_user_projection
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
+
+
+def _parse_joint_usernames(username: str) -> list[str] | None:
+    if "," in username:
+        members = [name.strip() for name in username.split(",") if name.strip()]
+        return members if len(members) >= 2 else None
+    if "+" in username:
+        members = [name.strip() for name in username.split("+") if name.strip()]
+        return members if len(members) >= 2 else None
+    return None
 
 
 def _load_user_profile(username: str) -> dict:
@@ -25,6 +36,104 @@ def _load_user_profile(username: str) -> dict:
 
 def _sum_account_balances(account_balances: dict) -> float:
     return round(float(account_balances.get("401k", 0.0)) + float(account_balances.get("roth_ira", 0.0)), 2)
+
+
+def _combine_account_balances(existing: dict[str, float], incoming: dict[str, float]) -> dict[str, float]:
+    return {
+        "401k": round(float(existing.get("401k", 0.0)) + float(incoming.get("401k", 0.0)), 2),
+        "roth_ira": round(float(existing.get("roth_ira", 0.0)) + float(incoming.get("roth_ira", 0.0)), 2),
+    }
+
+
+def _latest_timestamp(ts_a, ts_b):
+    if ts_a is None:
+        return ts_b
+    if ts_b is None:
+        return ts_a
+    try:
+        a = datetime.fromisoformat(str(ts_a).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(ts_b).replace("Z", "+00:00"))
+        return ts_b if b >= a else ts_a
+    except Exception:
+        return ts_b
+
+
+def _aggregate_projected_series(series_list: list[list[dict]]) -> list[dict]:
+    member_by_year: list[dict[int, dict]] = []
+    all_years: set[int] = set()
+
+    for series in series_list:
+        year_map: dict[int, dict] = {}
+        for item in series:
+            year = int(item.get("year", 0))
+            if year <= 0:
+                continue
+            year_map[year] = item
+            all_years.add(year)
+        member_by_year.append(year_map)
+
+    if not all_years:
+        return []
+
+    min_year = min(all_years)
+    max_year = max(all_years)
+    member_last_seen: list[dict | None] = [None] * len(member_by_year)
+
+    combined_by_year: dict[int, dict] = {}
+    for year in range(min_year, max_year + 1):
+        combined_by_year[year] = {
+            "year": year,
+            "balance": 0.0,
+            "account_balances": {"401k": 0.0, "roth_ira": 0.0},
+        }
+
+        for idx, year_map in enumerate(member_by_year):
+            if year in year_map:
+                member_last_seen[idx] = year_map[year]
+
+            point = member_last_seen[idx]
+            if point is None:
+                continue
+
+            combined_by_year[year]["balance"] = round(
+                float(combined_by_year[year]["balance"]) + float(point.get("balance", 0.0)),
+                2,
+            )
+            combined_by_year[year]["account_balances"] = _combine_account_balances(
+                combined_by_year[year]["account_balances"],
+                point.get("account_balances", {}),
+            )
+
+    return [combined_by_year[year] for year in sorted(combined_by_year.keys())]
+
+
+def _aggregate_actual_series(series_list: list[list[dict]]) -> list[dict]:
+    by_year: dict[int, dict] = {}
+    for series in series_list:
+        for item in series:
+            year = int(item.get("year", 0))
+            if year <= 0:
+                continue
+            if year not in by_year:
+                by_year[year] = {
+                    "year": year,
+                    "balance": 0.0,
+                    "balance_ids": [],
+                    "timestamp": None,
+                    "account_balances": {"401k": 0.0, "roth_ira": 0.0},
+                }
+            by_year[year]["balance"] = round(float(by_year[year]["balance"]) + float(item.get("balance", 0.0)), 2)
+            by_year[year]["account_balances"] = _combine_account_balances(
+                by_year[year]["account_balances"],
+                item.get("account_balances", {}),
+            )
+            by_year[year]["balance_ids"].extend(int(bid) for bid in item.get("balance_ids", []))
+            by_year[year]["timestamp"] = _latest_timestamp(by_year[year]["timestamp"], item.get("timestamp"))
+
+    for year in by_year:
+        by_year[year]["balance_ids"] = sorted(set(by_year[year]["balance_ids"]))
+
+    return [by_year[year] for year in sorted(by_year.keys())]
 
 
 def _estimated_annual_contribution(profile: dict, years_since_base: int = 0) -> float:
@@ -266,6 +375,21 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     Returns:
         Dict with 'projected', 'actual', and 'deltas' lists
     """
+    joint_usernames = _parse_joint_usernames(username)
+    if joint_usernames:
+        member_results = [get_comparison_data(member, db, current_year) for member in joint_usernames]
+        projected = _aggregate_projected_series([result.get("projected", []) for result in member_results])
+        actual = _aggregate_actual_series([result.get("actual", []) for result in member_results])
+        deltas = compute_deltas(projected, actual)
+
+        return {
+            "projected": projected,
+            "actual": actual,
+            "deltas": deltas,
+            "retirement_age": max(int(result.get("retirement_age", 65)) for result in member_results),
+            "retirement_year": max(int(result.get("retirement_year", current_year)) for result in member_results),
+        }
+
     # Get projected data from calculator engine
     projection_data = get_user_projection(username, current_year)
     projected = projection_data["projected"]

@@ -795,7 +795,7 @@ def run_joint_stress_test(
     - All members share the same macro return shock each year (correlated markets).
     - Each member's accounts use their phase-specific allocation (mu / sigma).
     - Members contribute independently until their own retirement age.
-    - Household withdrawals begin when the FIRST member retires and grow with inflation.
+    - Household withdrawals begin when ALL members are retired and grow with inflation.
     - Success horizon: last member reaches DEFAULT_LIFE_EXPECTANCY_AGE.
     """
     if simulation_count < MIN_SIMULATION_COUNT:
@@ -942,9 +942,9 @@ def run_joint_stress_test(
             prev_shock = normalized_shock
 
             # ------ Determine retirement phase for household ------
-            first_retirement_reached = any(ages[i] >= retirement_ages[i] for i in range(len(profiles)))
+            all_members_retired = all(ages[i] >= retirement_ages[i] for i in range(len(profiles)))
 
-            if first_retirement_reached:
+            if all_members_retired:
                 if retirement_start_balance is None:
                     retirement_start_balance = total_household + housing_equity
                     annual_withdrawal = total_household * withdrawal_pct
@@ -967,7 +967,7 @@ def run_joint_stress_test(
 
             annual_portfolio_withdrawal = (
                 max(annual_withdrawal - household_social_security_income - rental_net_cashflow, 0.0)
-                if first_retirement_reached
+                if all_members_retired
                 else 0.0
             )
 
@@ -992,7 +992,7 @@ def run_joint_stress_test(
                     years_since_start = max(0, ages[i] - current_ages[i])
                     planned_ira_contributions[i] = ira_annual_contributions[i] * ((1.0 + inflation) ** years_since_start)
 
-            if not first_retirement_reached and abs(rental_net_cashflow) > 0.0:
+            if not all_members_retired and abs(rental_net_cashflow) > 0.0:
                 total_weight = sum(max(bals_401k[i] + bals_ira[i], 0.0) for i in range(len(profiles)))
                 for i in range(len(profiles)):
                     if total_weight > 0:
@@ -1021,7 +1021,7 @@ def run_joint_stress_test(
                 # Allocate household withdrawal proportionally to this member's share
                 member_total = bals_401k[i] + bals_ira[i]
                 member_share = member_total / max(total_household, 1.0)
-                withdrawal_i = annual_portfolio_withdrawal * member_share if first_retirement_reached else 0.0
+                withdrawal_i = annual_portfolio_withdrawal * member_share if all_members_retired else 0.0
 
                 # Sub-allocate withdrawal across 401k / IRA within member
                 k_share = bals_401k[i] / max(member_total, 1.0)
@@ -1053,7 +1053,7 @@ def run_joint_stress_test(
         terminal_balance = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles))) + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
 
-        years_in_retirement = max(0, life_expectancy_age - min(retirement_ages))
+        years_in_retirement = max(0, life_expectancy_age - max(retirement_ages))
         real_terminal = (
             terminal_balance / ((1.0 + inflation) ** years_in_retirement)
             if years_in_retirement > 0
@@ -1107,7 +1107,7 @@ def run_joint_stress_test(
             },
         },
         "cashflow": {
-            "withdrawal_phase": "Household withdrawals begin when the earliest-retiring member reaches retirement age",
+            "withdrawal_phase": "Household withdrawals begin when all household members are retired",
             "withdrawal_rate": withdrawal_pct,
             "inflation_rate": inflation,
             "ira_contributions_included": True,

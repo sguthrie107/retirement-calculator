@@ -18,22 +18,26 @@ _USERS: dict[str, str] = {
 
 _REALM = "Guthrie Finance - Retirement"
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
-def _check_credentials(authorization: str | None) -> bool:
-    """Return True if the Authorization header contains valid Basic credentials."""
+def _get_authenticated_user(authorization: str | None) -> str | None:
+    """Return normalized username when Basic credentials are valid, else None."""
     if not authorization or not authorization.startswith("Basic "):
-        return False
+        return None
     try:
         decoded = base64.b64decode(authorization[6:]).decode("utf-8")
         username, _, password = decoded.partition(":")
-        expected = _USERS.get(username.lower(), None)
+        normalized_username = username.lower()
+        expected = _USERS.get(normalized_username, None)
         # expected being empty-string means the env var wasn't set — deny access
         if not expected:
-            return False
-        return secrets.compare_digest(password, expected)
+            return None
+        if secrets.compare_digest(password, expected):
+            return normalized_username
+        return None
     except Exception:
-        return False
+        return None
 
 
 class BasicAuthMiddleware(BaseHTTPMiddleware):
@@ -48,10 +52,17 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         if request.url.hostname in _LOCAL_HOSTS:
             return await call_next(request)
 
-        if not _check_credentials(request.headers.get("authorization")):
+        authenticated_user = _get_authenticated_user(request.headers.get("authorization"))
+        if not authenticated_user:
             return Response(
                 content="Unauthorized - please log in.",
                 status_code=401,
                 headers={"WWW-Authenticate": f'Basic realm="{_REALM}"'},
+            )
+
+        if authenticated_user == "guest" and request.method.upper() in _WRITE_METHODS:
+            return Response(
+                content="Forbidden - guest access is read-only.",
+                status_code=403,
             )
         return await call_next(request)
