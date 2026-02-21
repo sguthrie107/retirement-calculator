@@ -105,7 +105,7 @@ def get_match_scenario_projections(
 
     scenarios = {}
     for key, pct_boost in [("3pct", 0.03), ("5pct", 0.05)]:
-        boosted_contribution_pct = max(0.0, base_contribution_pct * (1.0 + pct_boost))
+        boosted_contribution_pct = max(0.0, base_contribution_pct + pct_boost)
         df_401k = retirement_401k_full_plan(
             username,
             current_year=current_year,
