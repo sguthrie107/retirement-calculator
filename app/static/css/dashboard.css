@@ -486,6 +486,18 @@ select:focus {
     color: var(--text-primary);
 }
 
+.delta-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.delta-header h2 {
+    margin-bottom: 0;
+}
+
 table {
     width: 100%;
     border-collapse: separate;

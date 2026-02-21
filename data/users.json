@@ -204,7 +204,12 @@
       "annual_interest_rate": 0.0375,
       "monthly_payment": 1831.15,
       "monthly_escrow": 529.84,
-      "conservative_annual_appreciation_rate": 0.025
+      "conservative_annual_appreciation_rate": 0.025,
+      "convert_to_rental_after_years": 5,
+      "rental_monthly_premium_over_p_and_i": 250,
+      "vacancy_rate": 0.06,
+      "maintenance_rate": 0.08,
+      "allow_sale_or_refi": false
     }
   ],
   "household_retirement_spending": [

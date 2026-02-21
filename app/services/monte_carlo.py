@@ -16,6 +16,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..models import Account, ActualBalance, StressTestResult, User
+from .rental_properties import (
+    apply_rental_assets_for_year,
+    housing_total_equity,
+    initialize_rental_asset_states,
+    load_household_assets_for_user,
+    load_users_file,
+)
 
 
 DEFAULT_SIMULATION_COUNT = 10000
@@ -130,8 +137,7 @@ def _load_household_debts_for_users(usernames: list[str]) -> list[dict[str, Any]
 
 
 def _load_household_assets_for_users(usernames: list[str]) -> list[dict[str, Any]]:
-    users_path = _project_root() / "data" / "users.json"
-    users_data = _load_json(users_path)
+    users_data = load_users_file()
     assets = users_data.get("household_assets", [])
     target = set(usernames)
 
@@ -167,62 +173,6 @@ def _load_household_retirement_spending_for_users(usernames: list[str]) -> dict[
             return config
 
     return None
-
-
-def _initialize_housing_asset_states(asset_configs: list[dict[str, Any]]) -> list[dict[str, float]]:
-    states: list[dict[str, float]] = []
-    for asset in asset_configs:
-        if str(asset.get("asset_type", "")).lower() != "residential_real_estate":
-            continue
-
-        current_home_value = float(asset.get("current_home_value", 0.0))
-        loan_balance = float(asset.get("loan_balance", 0.0))
-        if current_home_value <= 0.0 and loan_balance > 0.0:
-            current_home_value = loan_balance
-
-        states.append(
-            {
-                "home_value": max(current_home_value, 0.0),
-                "remaining_principal": max(loan_balance, 0.0),
-                "annual_interest_rate": float(asset.get("annual_interest_rate", 0.0)),
-                "monthly_payment": float(asset.get("monthly_payment", 0.0)),
-                "monthly_escrow": float(asset.get("monthly_escrow", 0.0)),
-                "annual_appreciation_rate": float(asset.get("conservative_annual_appreciation_rate", 0.0)),
-            }
-        )
-
-    return states
-
-
-def _apply_housing_assets_for_year(asset_states: list[dict[str, float]]) -> None:
-    for state in asset_states:
-        home_value = float(state.get("home_value", 0.0))
-        remaining = float(state.get("remaining_principal", 0.0))
-        annual_rate = float(state.get("annual_interest_rate", 0.0))
-        monthly_payment = float(state.get("monthly_payment", 0.0))
-        annual_appreciation = float(state.get("annual_appreciation_rate", 0.0))
-
-        monthly_rate = annual_rate / 12.0
-        monthly_growth = (1.0 + annual_appreciation) ** (1.0 / 12.0) - 1.0
-
-        for _ in range(12):
-            if remaining > 0.0:
-                interest = remaining * monthly_rate
-                principal_paid = max(0.0, monthly_payment - interest)
-                principal_paid = min(principal_paid, remaining)
-                remaining = max(remaining - principal_paid, 0.0)
-
-            home_value = max(home_value * (1.0 + monthly_growth), 0.0)
-
-        state["home_value"] = home_value
-        state["remaining_principal"] = remaining
-
-
-def _housing_total_equity(asset_states: list[dict[str, float]]) -> float:
-    return sum(
-        max(float(state.get("home_value", 0.0)) - float(state.get("remaining_principal", 0.0)), 0.0)
-        for state in asset_states
-    )
 
 
 def _build_fund_moments() -> dict[str, AssetMoments]:
@@ -540,7 +490,7 @@ def run_stress_test(
 
     user_profile = _load_user_profile(username)
     fund_moments = _build_fund_moments()
-    household_assets = _load_household_assets_for_users([username])
+    household_assets = load_household_assets_for_user(username)
 
     start_401k, start_ira = _starting_balances(db, db_user, user_profile)
     start_total_balance = start_401k + start_ira
@@ -587,7 +537,7 @@ def run_stress_test(
         salary = base_salary
         bal_401k = start_401k
         bal_ira = start_ira
-        housing_asset_states = _initialize_housing_asset_states(household_assets)
+        housing_asset_states = initialize_rental_asset_states(household_assets)
 
         # GARCH-like regime state for volatility clustering.
         regime_variance = 1.0
@@ -599,7 +549,8 @@ def run_stress_test(
 
         for year_idx in range(years_to_simulate):
             total_balance = max(bal_401k + bal_ira, 0.0)
-            housing_equity = _housing_total_equity(housing_asset_states)
+            rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
+            housing_equity = housing_total_equity(housing_asset_states)
             (mu_401k, sigma_401k), (mu_ira, sigma_ira) = _account_phase_moments(
                 user_profile,
                 age,
@@ -624,9 +575,14 @@ def run_stress_test(
             contribution = 0.0
             withdrawal = 0.0
 
+            rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
+
             if age < retirement_age:
                 contribution = _annual_contribution(user_profile, salary)
                 salary *= (1.0 + salary_growth)
+
+                # Rental net cashflow is treated as additional investable contribution.
+                contribution += rental_net_cashflow
             else:
                 if retirement_start_balance is None:
                     retirement_start_balance = total_balance + housing_equity
@@ -639,7 +595,8 @@ def run_stress_test(
                     years_since_claim = age - social_security_claim_age
                     social_security_income = social_security_base_annual_income * ((1.0 + inflation) ** max(0, years_since_claim))
 
-                withdrawal = max(annual_withdrawal - social_security_income, 0.0)
+                # Positive rental income offsets retirement draw; negative net rental cashflow increases it.
+                withdrawal = max(annual_withdrawal - social_security_income - rental_net_cashflow, 0.0)
 
             contribution_401k = contribution
             contribution_ira = _annual_ira_contribution(user_profile, year_idx, inflation) if age < retirement_age else 0.0
@@ -664,8 +621,6 @@ def run_stress_test(
             bal_401k = max((effective_401k * (1.0 + r_401k)) + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
             bal_ira = max((effective_ira * (1.0 + r_ira)) + 0.5 * (contribution_ira - withdrawal_ira), 0.0)
 
-            _apply_housing_assets_for_year(housing_asset_states)
-
             if (bal_401k + bal_ira) <= 1.0:
                 failed = True
                 bal_401k = 0.0
@@ -674,7 +629,7 @@ def run_stress_test(
 
             age += 1
 
-        terminal_balance = bal_401k + bal_ira + _housing_total_equity(housing_asset_states)
+        terminal_balance = bal_401k + bal_ira + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
 
         years_in_retirement = max(0, life_expectancy_age - retirement_age)
@@ -733,7 +688,7 @@ def run_stress_test(
         "housing_assets": {
             "enabled": len(household_assets) > 0,
             "assets": household_assets,
-            "treatment": "Residential real estate equity (home value minus remaining mortgage) included in total terminal assets",
+            "treatment": "Residential real estate equity included in terminal assets; rental conversion cashflow modeled after configured conversion year",
         },
         "success_definition": {
             "no_depletion_before_life_expectancy": True,
@@ -943,7 +898,7 @@ def run_joint_stress_test(
 
         bals_401k = [sb[0] for sb in start_bals]
         bals_ira = [sb[1] for sb in start_bals]
-        housing_asset_states = _initialize_housing_asset_states(household_assets)
+        housing_asset_states = initialize_rental_asset_states(household_assets)
 
         debt_states: list[dict[str, float]] = []
         for debt in debt_configs:
@@ -967,7 +922,8 @@ def run_joint_stress_test(
 
         for _year_idx in range(years_to_simulate):
             total_household = max(sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles))), 0.0)
-            housing_equity = _housing_total_equity(housing_asset_states)
+            rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
+            housing_equity = housing_total_equity(housing_asset_states)
 
             if debt_fully_paid:
                 employee_contribution_pcts = [
@@ -1010,7 +966,7 @@ def run_joint_stress_test(
                     )
 
             annual_portfolio_withdrawal = (
-                max(annual_withdrawal - household_social_security_income, 0.0)
+                max(annual_withdrawal - household_social_security_income - rental_net_cashflow, 0.0)
                 if first_retirement_reached
                 else 0.0
             )
@@ -1035,6 +991,15 @@ def run_joint_stress_test(
                     )
                     years_since_start = max(0, ages[i] - current_ages[i])
                     planned_ira_contributions[i] = ira_annual_contributions[i] * ((1.0 + inflation) ** years_since_start)
+
+            if not first_retirement_reached and abs(rental_net_cashflow) > 0.0:
+                total_weight = sum(max(bals_401k[i] + bals_ira[i], 0.0) for i in range(len(profiles)))
+                for i in range(len(profiles)):
+                    if total_weight > 0:
+                        member_weight = max(bals_401k[i] + bals_ira[i], 0.0) / total_weight
+                    else:
+                        member_weight = 1.0 / len(profiles)
+                    planned_contributions[i] += rental_net_cashflow * member_weight
 
             total_planned = sum(planned_contributions)
             if total_planned > 0 and total_debt_payment > 0:
@@ -1076,8 +1041,6 @@ def run_joint_stress_test(
                 bals_401k[i] = max((eff_401k * (1.0 + r_401k)) + 0.5 * (contrib_401k - w_401k), 0.0)
                 bals_ira[i] = max((eff_ira * (1.0 + r_ira)) + 0.5 * (contrib_ira - w_ira), 0.0)
 
-            _apply_housing_assets_for_year(housing_asset_states)
-
             new_total = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles)))
             if new_total <= 1.0:
                 failed = True
@@ -1087,7 +1050,7 @@ def run_joint_stress_test(
 
             ages = [a + 1 for a in ages]
 
-        terminal_balance = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles))) + _housing_total_equity(housing_asset_states)
+        terminal_balance = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles))) + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
 
         years_in_retirement = max(0, life_expectancy_age - min(retirement_ages))
@@ -1179,7 +1142,7 @@ def run_joint_stress_test(
             "enabled": len(household_assets) > 0,
             "assets": household_assets,
             "counting_rule": "Counted once for household projections",
-            "treatment": "Residential real estate equity (home value minus remaining mortgage) included in total terminal assets",
+            "treatment": "Residential equity included in terminal assets and rental conversion cashflow modeled annually",
         },
         "retirement_spending_goals": {
             "enabled": household_retirement_spending is not None,
