@@ -3,7 +3,9 @@ import os
 from pathlib import Path
 
 # Database
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///retirement.db")
+# Railway provides DATABASE_URL as postgres://, but SQLAlchemy requires postgresql://
+_raw_db_url = os.getenv("DATABASE_URL", "sqlite:///retirement.db")
+DATABASE_URL = _raw_db_url.replace("postgres://", "postgresql://", 1)
 
 # Security
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")

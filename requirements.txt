@@ -9,3 +9,6 @@ uvicorn[standard]>=0.24.0
 sqlalchemy>=2.0.0
 jinja2>=3.1.0
 python-multipart>=0.0.6
+
+# PostgreSQL driver (used in production; SQLite used locally by default)
+psycopg2-binary>=2.9.0
