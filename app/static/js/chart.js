@@ -27,6 +27,17 @@ const stressTierStyles = {
     1: { color: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' },
 };
 
+function createYearTickCallback(cadence = 4) {
+    return function(_value, index) {
+        const labels = (this && typeof this.getLabels === 'function') ? this.getLabels() : [];
+        const lastIndex = labels.length - 1;
+        if (index === lastIndex || index === 0 || index % cadence === 0) {
+            return labels[index];
+        }
+        return '';
+    };
+}
+
 async function loadUserData() {
     const userSelect = document.getElementById('userSelect');
     const selectedValue = userSelect ? userSelect.value : '';
@@ -446,8 +457,8 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     ticks: {
                         color: '#6B6B6B',
                         font: { size: isMobileViewport ? 10 : 12 },
-                        autoSkip: true,
-                        maxTicksLimit: isMobileViewport ? 5 : 10
+                        autoSkip: false,
+                        callback: createYearTickCallback(4)
                     }
                 },
                 y: {
@@ -644,7 +655,9 @@ function renderAllUsersChart(usersData) {
                     },
                     ticks: {
                         color: '#64748B',
-                        font: { size: 12 }
+                        font: { size: 12 },
+                        autoSkip: false,
+                        callback: createYearTickCallback(4)
                     }
                 },
                 y: {
