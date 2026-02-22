@@ -245,22 +245,11 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
             cursor_total = next_total
             cursor_accounts = next_accounts
 
-        rebased_native_anchor_total = float(rebased_by_year[first_native_year].get("balance", 0.0))
-        native_anchor_total = float(native_by_year[first_native_year].get("balance", 0.0))
-        scale = (rebased_native_anchor_total / native_anchor_total) if native_anchor_total > 0 else 1.0
-
-        merged: dict[int, dict] = {}
-        for point in native_projected:
-            year = int(point.get("year", 0))
-            scaled_accounts = point.get("account_balances", {})
-            merged[year] = {
-                "year": year,
-                "balance": round(float(point.get("balance", 0.0)) * scale, 2),
-                "account_balances": {
-                    "401k": round(float(scaled_accounts.get("401k", 0.0)) * scale, 2),
-                    "roth_ira": round(float(scaled_accounts.get("roth_ira", 0.0)) * scale, 2),
-                },
-            }
+        merged: dict[int, dict] = {
+            int(point.get("year", 0)): dict(point)
+            for point in native_projected
+            if int(point.get("year", 0)) > 0
+        }
 
         for year in target_years:
             if year in rebased_by_year:
