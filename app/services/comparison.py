@@ -448,16 +448,8 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
         
     
     actual = _apply_actual_chart_seed(actual, profile)
-    
-    # Debug logging
-    print(f"DEBUG comparison.py: account_balances_map = {account_balances_map}")
-    print(f"DEBUG comparison.py: actual data = {actual}")
-    
-    # Compute deltas where we have both actual and projected
+
     deltas = compute_deltas(projected, actual)
-    
-    print(f"DEBUG comparison.py: User {username} - actual data: {actual}")
-    print(f"DEBUG comparison.py: Deltas computed: {deltas}")
     
     return {
         "projected": projected,

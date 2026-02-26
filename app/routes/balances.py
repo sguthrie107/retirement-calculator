@@ -1,11 +1,14 @@
 """Balance management routes."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
 from ..database import get_db
 from ..models import User, Account, ActualBalance
 from ..schemas import BalanceCreate, BalanceUpdate, BalanceResponse
+from ..sanitize import sanitize_name, sanitize_notes
+from ..auth import is_editor
 
 router = APIRouter(prefix="/api/balances")
 
@@ -14,38 +17,36 @@ router = APIRouter(prefix="/api/balances")
 async def create_balance(
     username: str,
     balance_data: BalanceCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    """
-    Create a new actual balance entry for a user.
-    
-    Args:
-        username: Name of user
-        balance_data: Balance data to create
-        
-    Returns:
-        Created balance record
-        
-    Raises:
-        409: If balance for this year already exists
-        404: If user not found
-    """
+    """Create a new actual balance entry for a user."""
+    user = request.state.authenticated_user
+    if not is_editor(user):
+        raise HTTPException(status_code=403, detail="Only Steven and Alyssa can create balances")
+
+    try:
+        clean_name = sanitize_name(username)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    clean_notes = sanitize_notes(balance_data.notes)
     # Get or create user
-    user = db.query(User).filter(User.name == username).first()
-    if not user:
-        user = User(name=username)
-        db.add(user)
+    user_obj = db.query(User).filter(User.name == clean_name).first()
+    if not user_obj:
+        user_obj = User(name=clean_name)
+        db.add(user_obj)
         db.commit()
-        db.refresh(user)
+        db.refresh(user_obj)
     
     # Get or create account
     account = (
         db.query(Account)
-        .filter(Account.user_id == user.id, Account.account_type == balance_data.account_type)
+        .filter(Account.user_id == user_obj.id, Account.account_type == balance_data.account_type)
         .first()
     )
     if not account:
-        account = Account(user_id=user.id, account_type=balance_data.account_type)
+        account = Account(user_id=user_obj.id, account_type=balance_data.account_type)
         db.add(account)
         db.commit()
         db.refresh(account)
@@ -55,7 +56,7 @@ async def create_balance(
         account_id=account.id,
         year=balance_data.year,
         balance=balance_data.balance,
-        notes=balance_data.notes,
+        notes=clean_notes,
     )
     
     try:
@@ -114,24 +115,24 @@ async def get_single_balance(balance_id: int, db: Session = Depends(get_db)):
 async def update_balance(
     balance_id: int,
     balance_data: BalanceUpdate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    """Update an existing balance entry. Only updates timestamp if balance value changed."""
+    """Update an existing balance entry."""
+    user = request.state.authenticated_user
+    if not is_editor(user):
+        raise HTTPException(status_code=403, detail="Only Steven and Alyssa can update balances")
+
     from datetime import datetime
     
     balance = db.query(ActualBalance).filter(ActualBalance.id == balance_id).first()
     if not balance:
         raise HTTPException(status_code=404, detail="Balance not found")
     
-    # Check if balance value actually changed
     balance_changed = balance.balance != balance_data.balance
-    
-    # Update values
     balance.balance = balance_data.balance
     if balance_data.notes is not None:
-        balance.notes = balance_data.notes
-    
-    # Only update timestamp if balance value changed
+        balance.notes = sanitize_notes(balance_data.notes)
     if balance_changed:
         balance.recorded_at = datetime.utcnow().isoformat()
     
@@ -141,16 +142,16 @@ async def update_balance(
 
 
 @router.delete("/{balance_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_balance(balance_id: int, db: Session = Depends(get_db)):
+async def delete_balance(balance_id: int, request: Request, db: Session = Depends(get_db)):
     """Delete a balance entry."""
-    print(f"DEBUG: Delete requested for balance_id: {balance_id}")
+    user = request.state.authenticated_user
+    if not is_editor(user):
+        raise HTTPException(status_code=403, detail="Only Steven and Alyssa can delete balances")
+
     balance = db.query(ActualBalance).filter(ActualBalance.id == balance_id).first()
     if not balance:
-        print(f"DEBUG: Balance not found with id: {balance_id}")
         raise HTTPException(status_code=404, detail="Balance not found")
     
-    print(f"DEBUG: Deleting balance: {balance.id}, year: {balance.year}, amount: {balance.balance}")
     db.delete(balance)
     db.commit()
-    print(f"DEBUG: Balance deleted successfully")
     return None

@@ -8,6 +8,7 @@ from pathlib import Path
 from .database import init_db
 from .routes import dashboard, projections, balances, stress_test
 from .auth import BasicAuthMiddleware
+from .security_headers import SecurityHeadersMiddleware
 
 # Get absolute paths
 BASE_DIR = Path(__file__).parent.parent
@@ -33,7 +34,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     
-    # Enforce HTTP Basic Auth on all routes
+    # Middleware (outermost first — security headers wrap auth wrap routes)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(BasicAuthMiddleware)
 
     # Mount static files (use absolute path)
@@ -44,14 +46,13 @@ def create_app() -> FastAPI:
     app.include_router(projections.router, tags=["projections"])
     app.include_router(balances.router, tags=["balances"])
     app.include_router(stress_test.router, tags=["stress-test"])
+
+    @app.get("/health", include_in_schema=False)
+    def health_check():
+        return {"status": "ok"}
     
     return app
 
 
 # Create app instance
 app = create_app()
-
-
-@app.get("/health", include_in_schema=False)
-def health_check():
-    return {"status": "ok"}
