@@ -59,6 +59,11 @@ async def get_match_scenarios(username: str, db: Session = Depends(get_db)):
         }
 
         rebased = {}
+        comparison_years = sorted({
+            int(item.get("year", 0))
+            for item in comparison_projected
+            if int(item.get("year", 0)) > 0
+        })
         for key in ("3pct", "5pct"):
             rows = scenarios.get(key, [])
             year_to_balance = {
@@ -66,17 +71,28 @@ async def get_match_scenarios(username: str, db: Session = Depends(get_db)):
                 for item in rows
                 if int(item.get("year", 0)) > 0
             }
+            available_years = sorted(year_to_balance.keys())
             rebased_rows = []
-            for year in sorted(year_to_balance.keys()):
-                base_raw = raw_baseline.get(year)
-                base_scaled = scaled_baseline.get(year)
-                scenario_raw = year_to_balance[year]
-                if base_raw and base_scaled and base_raw > 0:
-                    ratio = scenario_raw / base_raw
-                    scenario_scaled = base_scaled * ratio
+            for year in comparison_years:
+                scenario_raw = year_to_balance.get(year)
+                ratio = None
+                if scenario_raw is not None:
+                    base_raw = raw_baseline.get(year)
+                    if base_raw and base_raw > 0:
+                        ratio = scenario_raw / base_raw
                 else:
-                    scenario_scaled = scenario_raw
-                rebased_rows.append({"year": year, "balance": round(float(scenario_scaled), 2)})
+                    prior_years = [y for y in available_years if y < year and raw_baseline.get(y)]
+                    if prior_years:
+                        prior_year = prior_years[-1]
+                        prior_base = raw_baseline.get(prior_year)
+                        prior_scenario = year_to_balance.get(prior_year)
+                        if prior_base and prior_base > 0 and prior_scenario is not None:
+                            ratio = prior_scenario / prior_base
+
+                base_scaled = scaled_baseline.get(year)
+                if ratio is not None and base_scaled is not None:
+                    scenario_scaled = base_scaled * ratio
+                    rebased_rows.append({"year": year, "balance": round(float(scenario_scaled), 2)})
             rebased[key] = rebased_rows
 
         return rebased

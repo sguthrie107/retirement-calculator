@@ -5,6 +5,11 @@ let projectedAccountBalancesByYear = {};
 let actualAccountBalancesByYear = {};
 let projectedTotalsByYear = {};
 let actualTotalsByYear = {};
+let currentSingleUsername = null;
+let currentSingleUserData = null;
+let currentSingleUserMatchScenarios = null;
+let selectedDeductionRate = 0.05;
+let isStandardDeductionEnabled = false;
 
 if (window.Chart) {
     Chart.defaults.font.family = 'Montserrat, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -38,6 +43,59 @@ function createYearTickCallback(cadence = 4) {
     };
 }
 
+function getSelectedDeductionRate() {
+    const select = document.getElementById('deductionRateSelect');
+    const value = select ? Number(select.value) : selectedDeductionRate;
+    if (Number.isFinite(value) && value > 0) {
+        return value;
+    }
+    return selectedDeductionRate;
+}
+
+function syncDeductionControls() {
+    const toggle = document.getElementById('standardDeductionToggle');
+
+    if (toggle) {
+        toggle.checked = Boolean(isStandardDeductionEnabled);
+    }
+}
+
+function onStandardDeductionToggleChange() {
+    const toggle = document.getElementById('standardDeductionToggle');
+    isStandardDeductionEnabled = Boolean(toggle?.checked);
+    syncDeductionControls();
+    const userSelect = document.getElementById('userSelect');
+    const selectedUser = userSelect ? userSelect.value : currentSingleUsername;
+    if (selectedUser && selectedUser !== 'all') {
+        loadSingleUser(selectedUser);
+        return;
+    }
+    rerenderCurrentUserChart();
+}
+
+function onDeductionRateChange() {
+    selectedDeductionRate = getSelectedDeductionRate();
+    if (!isStandardDeductionEnabled) {
+        isStandardDeductionEnabled = true;
+        const toggle = document.getElementById('standardDeductionToggle');
+        if (toggle) toggle.checked = true;
+    }
+    syncDeductionControls();
+    const userSelect = document.getElementById('userSelect');
+    const selectedUser = userSelect ? userSelect.value : currentSingleUsername;
+    if (selectedUser && selectedUser !== 'all') {
+        loadSingleUser(selectedUser);
+        return;
+    }
+    rerenderCurrentUserChart();
+}
+
+function rerenderCurrentUserChart() {
+    if (currentSingleUsername && currentSingleUserData) {
+        renderSingleUserChart(currentSingleUsername, currentSingleUserData, currentSingleUserMatchScenarios);
+    }
+}
+
 async function loadUserData() {
     const userSelect = document.getElementById('userSelect');
     const selectedValue = userSelect ? userSelect.value : '';
@@ -60,6 +118,12 @@ async function loadUserData() {
         if (stressTestSection) {
             stressTestSection.style.display = 'none';
         }
+        const deductionControlGroup = document.getElementById('deductionControlGroup');
+        if (deductionControlGroup) {
+            deductionControlGroup.style.display = 'none';
+        }
+        isStandardDeductionEnabled = false;
+        syncDeductionControls();
         loadAllUsers();
     } else {
         console.log('Loading single user:', selectedValue);
@@ -68,6 +132,11 @@ async function loadUserData() {
         if (stressTestSection) {
             stressTestSection.style.display = 'block';
         }
+        const deductionControlGroup = document.getElementById('deductionControlGroup');
+        if (deductionControlGroup) {
+            deductionControlGroup.style.display = 'flex';
+        }
+        syncDeductionControls();
         loadSingleUser(selectedValue);
     }
 }
@@ -101,6 +170,16 @@ async function loadSingleUser(username) {
             matchScenarios = await scenariosResponse.json();
             console.log('Match scenarios loaded:', matchScenarios ? Object.keys(matchScenarios) : 'none');
         }
+
+        currentSingleUsername = username;
+        currentSingleUserData = data;
+        currentSingleUserMatchScenarios = matchScenarios;
+        selectedDeductionRate = getSelectedDeductionRate();
+        const deductionRateSelect = document.getElementById('deductionRateSelect');
+        if (deductionRateSelect) {
+            deductionRateSelect.value = String(selectedDeductionRate);
+        }
+        syncDeductionControls();
 
         renderSingleUserChart(username, data, matchScenarios);
         renderDeltaTable(data.deltas);
@@ -147,7 +226,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     }
     
     // Extract years from projected data
-    const years = data.projected.map(d => d.year);
+    const baseYears = data.projected.map(d => d.year);
     
     // Create actual data array matching projected years (null for missing years)
     const actualByYear = {};
@@ -170,8 +249,58 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     });
     
     const projectedData = data.projected.map(d => d.balance);
-    const actualData = years.map(year => actualByYear[year] || null);
-    const actualAboveData = years.map((year, idx) => {
+    const actualData = baseYears.map(year => actualByYear[year] || null);
+    const toNumber = (value) => {
+        if (value === null || value === undefined || value === '') return 0;
+        if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+        const parsed = Number(String(value).replace(/,/g, ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const firstProjectedBreakdown = data.projected
+        .map((d) => d.account_balances || {})
+        .find((b) => toNumber(b['401k'] ?? b['k401'] ?? b['401K']) > 0 || toNumber(b['roth_ira'] ?? b['ira'] ?? b['IRA'] ?? b['rothIra']) > 0);
+    const firstActualBreakdown = baseYears
+        .map((year) => actualAccountBalancesByYear[year] || {})
+        .find((b) => toNumber(b['401k'] ?? b['k401'] ?? b['401K']) > 0 || toNumber(b['roth_ira'] ?? b['ira'] ?? b['IRA'] ?? b['rothIra']) > 0);
+
+    const seed401k = toNumber((firstProjectedBreakdown || firstActualBreakdown || {})['401k'] ?? (firstProjectedBreakdown || firstActualBreakdown || {})['k401'] ?? (firstProjectedBreakdown || firstActualBreakdown || {})['401K']);
+    const seedIra = toNumber((firstProjectedBreakdown || firstActualBreakdown || {})['roth_ira'] ?? (firstProjectedBreakdown || firstActualBreakdown || {})['ira'] ?? (firstProjectedBreakdown || firstActualBreakdown || {})['IRA'] ?? (firstProjectedBreakdown || firstActualBreakdown || {})['rothIra']);
+    const seedTotal = seed401k + seedIra;
+    const default401kWeight = seedTotal > 0 ? (seed401k / seedTotal) : 0.6;
+    const defaultIraWeight = 1 - default401kWeight;
+
+    const projected401kData = data.projected.map((d, idx) => {
+        const balances = d.account_balances || {};
+        const projectedTotal = toNumber(projectedData[idx]);
+        const direct401k = toNumber(balances['401k'] ?? balances['k401'] ?? balances['401K']);
+        const directIra = toNumber(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra']);
+
+        if (direct401k > 0) return direct401k;
+        if (projectedTotal > 0 && directIra > 0) return Math.max(projectedTotal - directIra, 0);
+        if (projectedTotal > 0) return projectedTotal * default401kWeight;
+        return 0;
+    });
+    const projectedIraData = data.projected.map((d, idx) => {
+        const balances = d.account_balances || {};
+        const projectedTotal = toNumber(projectedData[idx]);
+        const direct401k = toNumber(balances['401k'] ?? balances['k401'] ?? balances['401K']);
+        const directIra = toNumber(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra']);
+
+        if (directIra > 0) return directIra;
+        if (projectedTotal > 0 && direct401k > 0) return Math.max(projectedTotal - direct401k, 0);
+        if (projectedTotal > 0) return projectedTotal * defaultIraWeight;
+        return 0;
+    });
+    const actual401kData = baseYears.map((year) => {
+        const balances = actualAccountBalancesByYear[year] || {};
+        return Number(balances['401k'] ?? balances['k401'] ?? balances['401K'] ?? 0);
+    });
+    const actualIraData = baseYears.map((year) => {
+        const balances = actualAccountBalancesByYear[year] || {};
+        return Number(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra'] ?? 0);
+    });
+    const actualAboveData = baseYears.map((year, idx) => {
         const actual = actualData[idx];
         const projected = projectedData[idx];
         if (actual === null || projected === null || projected === undefined) {
@@ -179,7 +308,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         }
         return actual >= projected ? actual : null;
     });
-    const actualBelowData = years.map((year, idx) => {
+    const actualBelowData = baseYears.map((year, idx) => {
         const actual = actualData[idx];
         const projected = projectedData[idx];
         if (actual === null || projected === null || projected === undefined) {
@@ -187,7 +316,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         }
         return actual < projected ? actual : null;
     });
-    const differencePointColors = years.map((year, idx) => {
+    const differencePointColors = baseYears.map((year, idx) => {
         const actual = actualData[idx];
         const projected = projectedData[idx];
         if (actual === null || projected === null || projected === undefined) {
@@ -251,6 +380,86 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
 
     // Build match scenario datasets (dotted lines, only when data provided)
     const matchDatasets = [];
+    const retirementAge = Number(data.retirement_age || 65);
+    const retirementYearValue = Number.isFinite(Number(retirementYear)) ? Number(retirementYear) : Number(data.retirement_year || 0);
+    const lifeExpectancyAge = Number(data.life_expectancy_age || 88);
+    const deductionRate = getSelectedDeductionRate();
+    const deductionToggle = document.getElementById('standardDeductionToggle');
+    const deductionEnabled = Boolean(deductionToggle?.checked);
+
+    const chartYears = [...baseYears];
+    const postRetirementByYear = {};
+    const baselineWithdrawalByYear = {};
+    const scenarioWithdrawalByKey = {
+        '3pct': {},
+        '5pct': {},
+    };
+
+    const sequenceRiskReturns = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025];
+    const getSequenceRiskReturn = (startYear, year) => {
+        const offset = Math.max(0, year - startYear);
+        if (offset < sequenceRiskReturns.length) {
+            return sequenceRiskReturns[offset];
+        }
+        return 0.03;
+    };
+
+    let lifeExpectancyYear = null;
+    if (deductionEnabled && Number.isFinite(retirementYearValue) && retirementYearValue > 0 && Number.isFinite(retirementAge) && Number.isFinite(lifeExpectancyAge)) {
+        const currentYearApprox = retirementYearValue - retirementAge;
+        lifeExpectancyYear = currentYearApprox + lifeExpectancyAge;
+        const projectionByYear = {};
+        baseYears.forEach((year, idx) => {
+            projectionByYear[year] = projectedData[idx];
+        });
+
+        const startYear = retirementYearValue;
+        const startBalance = Number(projectionByYear[startYear] ?? projectedData[projectedData.length - 1] ?? 0);
+        const fixedAnnualWithdrawal = Math.max(startBalance * deductionRate, 0);
+        let runningBalance = Math.max(startBalance, 0);
+        postRetirementByYear[startYear] = roundToCents(runningBalance);
+        baselineWithdrawalByYear[startYear] = 0;
+
+        for (let year = startYear + 1; year <= lifeExpectancyYear; year += 1) {
+            const riskReturn = getSequenceRiskReturn(startYear, year);
+            runningBalance = Math.max(runningBalance * (1 + riskReturn), 0);
+            const withdrawal = Math.min(fixedAnnualWithdrawal, runningBalance);
+            runningBalance = Math.max(runningBalance - withdrawal, 0);
+            postRetirementByYear[year] = roundToCents(runningBalance);
+            baselineWithdrawalByYear[year] = roundToCents(withdrawal);
+            if (!chartYears.includes(year)) {
+                chartYears.push(year);
+            }
+        }
+    }
+
+    chartYears.sort((a, b) => a - b);
+
+    const projectedByYear = {};
+    baseYears.forEach((year, idx) => {
+        projectedByYear[year] = projectedData[idx];
+    });
+
+    const projectedDisplaySeries = chartYears.map((year) => {
+        if (deductionEnabled && Number.isFinite(retirementYearValue) && year >= retirementYearValue) {
+            if (Object.prototype.hasOwnProperty.call(postRetirementByYear, year)) {
+                return postRetirementByYear[year];
+            }
+            return null;
+        }
+        if (Object.prototype.hasOwnProperty.call(projectedByYear, year)) {
+            return projectedByYear[year];
+        }
+        return null;
+    });
+
+    const actualDisplaySeries = chartYears.map((year) => {
+        if (Object.prototype.hasOwnProperty.call(actualByYear, year)) {
+            return actualByYear[year];
+        }
+        return null;
+    });
+
     if (matchScenarios) {
         const scenarioConfigs = [
             { key: '3pct', label: '+3% 401k Contribution', color: '#0F766E', order: 2 },
@@ -260,9 +469,31 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
             if (matchScenarios[cfg.key]) {
                 const byYear = {};
                 matchScenarios[cfg.key].forEach(d => { byYear[d.year] = d.balance; });
+
+                if (deductionEnabled && Number.isFinite(retirementYearValue) && retirementYearValue > 0 && Number.isFinite(lifeExpectancyYear)) {
+                    const scenarioStartBalance = Number(
+                        byYear[retirementYearValue]
+                        ?? byYear[Math.max(...Object.keys(byYear).map(Number).filter(y => y <= retirementYearValue))]
+                        ?? 0
+                    );
+                    const scenarioFixedWithdrawal = Math.max(scenarioStartBalance * deductionRate, 0);
+                    let scenarioRunningBalance = Math.max(scenarioStartBalance, 0);
+                    byYear[retirementYearValue] = roundToCents(scenarioRunningBalance);
+                    scenarioWithdrawalByKey[cfg.key][retirementYearValue] = 0;
+
+                    for (let year = retirementYearValue + 1; year <= lifeExpectancyYear; year += 1) {
+                        const scenarioRiskReturn = getSequenceRiskReturn(retirementYearValue, year);
+                        scenarioRunningBalance = Math.max(scenarioRunningBalance * (1 + scenarioRiskReturn), 0);
+                        const scenarioWithdrawal = Math.min(scenarioFixedWithdrawal, scenarioRunningBalance);
+                        scenarioRunningBalance = Math.max(scenarioRunningBalance - scenarioWithdrawal, 0);
+                        byYear[year] = roundToCents(scenarioRunningBalance);
+                        scenarioWithdrawalByKey[cfg.key][year] = roundToCents(scenarioWithdrawal);
+                    }
+                }
+
                 matchDatasets.push({
                     label: cfg.label,
-                    data: years.map(y => byYear[y] ?? null),
+                    data: chartYears.map(y => byYear[y] ?? null),
                     borderColor: cfg.color,
                     backgroundColor: 'transparent',
                     borderWidth: 2,
@@ -281,16 +512,26 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         }
     }
 
+    const resolveTooltipIndex = (context) => {
+        if (!context || context.length === 0) {
+            return null;
+        }
+        const dataIndex = Number(context[0]?.dataIndex);
+        return Number.isFinite(dataIndex) ? dataIndex : null;
+    };
+
     chartInstance = new Chart(ctx, {
         type: 'line',
         plugins: [retirementMarkerPlugin],
         data: {
-            labels: years,
+            labels: chartYears,
             datasets: [
                 ...matchDatasets,
                 {
-                    label: `${username} - Projected Balance`,
-                    data: projectedData,
+                    label: deductionEnabled
+                        ? `${username} - Projected Balance (${Math.round(deductionRate * 100)}% Standard Deduction)`
+                        : `${username} - Projected Balance`,
+                    data: projectedDisplaySeries,
                     borderColor: '#1F3A8A',
                     backgroundColor: 'rgba(31, 58, 138, 0.12)',
                     borderWidth: 3,
@@ -305,7 +546,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                 },
                 {
                     label: `${username} - Actual Balance`,
-                    data: actualData,
+                    data: actualDisplaySeries,
                     borderColor: '#C8A44D',
                     backgroundColor: 'rgba(200, 164, 77, 0.14)',
                     borderWidth: 3,
@@ -384,7 +625,9 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     bodyFont: { size: isMobileViewport ? 11 : 13, weight: '600' },
                     callbacks: {
                         title: function(context) {
-                            return 'Year ' + context[0].label;
+                            const idx = resolveTooltipIndex(context);
+                            const year = idx !== null ? chartYears[idx] : context[0].label;
+                            return 'Year ' + year;
                         },
                         labelPointStyle: function() {
                             return {
@@ -412,9 +655,15 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                                 return '';
                             }
 
-                            const year = context[0].label;
-                            const projectedBreakdown = projectedAccountBalancesByYear[year] || {};
-                            const actualBreakdown = actualAccountBalancesByYear[year] || {};
+                            const idx = resolveTooltipIndex(context);
+                            if (idx === null) {
+                                return '';
+                            }
+
+                            const hoverYear = Number(chartYears[idx]);
+                            const isPostRetirementView = deductionEnabled
+                                && Number.isFinite(retirementYearValue)
+                                && hoverYear > retirementYearValue;
 
                             const formatMoney = (value) => new Intl.NumberFormat('en-US', {
                                 style: 'currency',
@@ -425,16 +674,38 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
 
                             const rows = [];
 
-                            if (projectedTotalsByYear[year] !== undefined) {
-                                rows.push('Projected (Total): ' + formatMoney(projectedTotalsByYear[year]));
-                                rows.push('Projected (401k): ' + formatMoney(projectedBreakdown['401k']));
-                                rows.push('Projected (IRA): ' + formatMoney(projectedBreakdown['roth_ira']));
+                            if (isPostRetirementView) {
+                                rows.push(`Withdrawal Rate: ${(deductionRate * 100).toFixed(1)}%`);
+                                rows.push('Total Withdraw: ' + formatMoney(baselineWithdrawalByYear[hoverYear] || 0));
+
+                                if (scenarioWithdrawalByKey['3pct'] && scenarioWithdrawalByKey['3pct'][hoverYear] !== undefined) {
+                                    rows.push('+3% Withdraw: ' + formatMoney(scenarioWithdrawalByKey['3pct'][hoverYear]));
+                                }
+                                if (scenarioWithdrawalByKey['5pct'] && scenarioWithdrawalByKey['5pct'][hoverYear] !== undefined) {
+                                    rows.push('+5% Withdraw: ' + formatMoney(scenarioWithdrawalByKey['5pct'][hoverYear]));
+                                }
+
+                                const postRetirementBalance = projectedDisplaySeries[idx];
+                                if (postRetirementBalance !== undefined && postRetirementBalance !== null) {
+                                    rows.push('Projected End Balance: ' + formatMoney(postRetirementBalance));
+                                }
+
+                                return rows;
                             }
 
-                            if (actualTotalsByYear[year] !== undefined) {
-                                rows.push('Actual (Total): ' + formatMoney(actualTotalsByYear[year]));
-                                rows.push('Actual (401k): ' + formatMoney(actualBreakdown['401k']));
-                                rows.push('Actual (IRA): ' + formatMoney(actualBreakdown['roth_ira']));
+                            const projectedTotal = projectedDisplaySeries[idx];
+                            if (projectedTotal !== undefined && projectedTotal !== null) {
+                                const projected401k = projected401kData[idx] !== undefined ? projected401kData[idx] : (projectedTotal * default401kWeight);
+                                const projectedIra = projectedIraData[idx] !== undefined ? projectedIraData[idx] : (projectedTotal * defaultIraWeight);
+                                rows.push('Projected (401k): ' + formatMoney(projected401k));
+                                rows.push('Projected (IRA): ' + formatMoney(projectedIra));
+                            }
+
+                            const actualTotal = actualDisplaySeries[idx];
+                            if (actualTotal !== undefined && actualTotal !== null) {
+                                rows.push('Actual (Total): ' + formatMoney(actualTotal));
+                                rows.push('Actual (401k): ' + formatMoney(actual401kData[idx]));
+                                rows.push('Actual (IRA): ' + formatMoney(actualIraData[idx]));
                             }
 
                             return rows;
@@ -492,6 +763,10 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
             }
         }
     });
+}
+
+function roundToCents(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 function renderAllUsersChart(usersData) {
@@ -1507,4 +1782,6 @@ if (typeof window !== 'undefined') {
     window.loadJointStressTestResult = loadJointStressTestResult;
     window.recalculateJointStressTest = recalculateJointStressTest;
     window.toggleAssumptions = toggleAssumptions;
+    window.onDeductionRateChange = onDeductionRateChange;
+    window.onStandardDeductionToggleChange = onStandardDeductionToggleChange;
 }

@@ -18,6 +18,17 @@
             <option value="all">📊 View All Users</option>
         </select>
     </div>
+    <div class="control-group" id="deductionControlGroup">
+        <label class="toggle-inline" for="standardDeductionToggle">
+            <input type="checkbox" id="standardDeductionToggle" onchange="onStandardDeductionToggleChange()">
+            <span>Standard Deductions</span>
+        </label>
+        <select id="deductionRateSelect" onchange="onDeductionRateChange()">
+            <option value="0.05">5%</option>
+            <option value="0.06">6%</option>
+            <option value="0.07">7%</option>
+        </select>
+    </div>
 </div>
 
 <div class="chart-container">

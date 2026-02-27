@@ -377,6 +377,8 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
             "deltas": deltas,
             "retirement_age": max(int(result.get("retirement_age", 65)) for result in member_results),
             "retirement_year": max(int(result.get("retirement_year", current_year)) for result in member_results),
+            "life_expectancy_age": max(int(result.get("life_expectancy_age", 88)) for result in member_results),
+            "withdrawal_pct": float(member_results[0].get("withdrawal_pct", 0.05)) if member_results else 0.05,
         }
 
     # Get projected data from calculator engine
@@ -387,6 +389,8 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     retirement_age = int(profile.get("retirement_age", 65))
     current_age = int(profile.get("age", 35))
     retirement_year = current_year + max(0, retirement_age - current_age)
+    life_expectancy_age = int(profile.get("life_expectancy_age", 88))
+    withdrawal_pct = float(profile.get("withdrawal_pct", 0.05))
     
     # Keep projected account balances as true projected values.
     
@@ -457,6 +461,8 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
         "deltas": deltas,
         "retirement_age": retirement_age,
         "retirement_year": retirement_year,
+        "life_expectancy_age": life_expectancy_age,
+        "withdrawal_pct": withdrawal_pct,
     }
 
 

@@ -38,6 +38,8 @@ class ComparisonResponse(BaseModel):
     deltas: list[dict]
     retirement_age: Optional[int] = None
     retirement_year: Optional[int] = None
+    life_expectancy_age: Optional[int] = None
+    withdrawal_pct: Optional[float] = None
 
 
 class StressTestRecalculateRequest(BaseModel):
