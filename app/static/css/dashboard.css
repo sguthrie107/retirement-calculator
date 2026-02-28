@@ -341,28 +341,23 @@ header p {
 
 /* Dashboard controls */
 .dashboard-controls {
-    background: var(--surface);
-    padding: 1.5rem 2rem;
-    border-radius: 16px;
-    box-shadow: var(--shadow-sm);
-    margin-bottom: 1.5rem;
+    max-width: 1400px;
+    margin: 0 auto 1rem auto;
     display: flex;
-    gap: 2rem;
-    align-items: center;
     flex-wrap: wrap;
-    border: 1px solid var(--border);
-    transition: all 0.3s ease;
-}
-
-.dashboard-controls:hover {
-    box-shadow: var(--shadow-md);
-    border-color: var(--trim-color);
+    gap: 0.8rem 1rem;
+    align-items: center;
 }
 
 .control-group {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.55rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.55rem 0.75rem;
+    box-shadow: var(--shadow-sm);
 }
 
 .toggle-inline {
@@ -378,19 +373,49 @@ header p {
 }
 
 .toggle-inline span {
-    font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.84rem;
+    font-weight: 700;
     color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
 }
 
 .control-group label {
-    font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.84rem;
+    font-weight: 700;
     color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+}
+
+.control-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 0.2rem;
+}
+
+.control-rate-label {
+    font-size: 0.8rem;
+}
+
+.dashboard-controls .control-group select {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.84rem;
+    padding: 0.4rem 0.6rem;
+    min-height: 36px;
+}
+
+.dashboard-controls .control-group select:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+#deductionRateSelect {
+    min-width: 88px;
+    text-align: center;
+    font-weight: 700;
 }
 
 select {
@@ -1080,7 +1105,6 @@ html {
     }
 
     .chart-container,
-    .dashboard-controls,
     .stress-section,
     .delta-section {
         padding: 1.5rem;
@@ -1113,18 +1137,21 @@ html {
 
     .dashboard-controls {
         gap: 0.9rem;
-        padding: 1rem;
     }
 
     .control-group {
         width: 100%;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.45rem;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
     }
 
     .control-group label {
         font-size: 0.78rem;
+    }
+
+    .control-divider {
+        display: none;
     }
 
     select,
@@ -1191,7 +1218,6 @@ html {
         padding: 0.5rem;
     }
 
-    .dashboard-controls,
     .stress-section,
     .delta-section {
         padding: 0.85rem;
