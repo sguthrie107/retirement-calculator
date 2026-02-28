@@ -5,31 +5,33 @@
 {% endblock %}
 
 {% block content %}
-<div class="dashboard-controls">
-    <div class="control-group">
-        <label for="userSelect">View:</label>
-        <select id="userSelect" onchange="loadUserData()">
-            <option value="">-- Choose a view --</option>
-            {% if users %}
-                {% for user in users %}
-                <option value="{{ user }}" {% if user == selected_user %}selected{% endif %}>{{ user }}</option>
-                {% endfor %}
-            {% endif %}
-            <option value="all">All Users</option>
-        </select>
-    </div>
-    <div class="control-group" id="deductionControlGroup">
-        <label class="toggle-inline" for="standardDeductionToggle">
-            <input type="checkbox" id="standardDeductionToggle" onchange="onStandardDeductionToggleChange()">
-            <span>Standard Deductions</span>
-        </label>
-        <span class="control-divider" aria-hidden="true"></span>
-        <label class="control-rate-label" for="deductionRateSelect">Rate:</label>
-        <select id="deductionRateSelect" onchange="onDeductionRateChange()">
-            <option value="0.05">5%</option>
-            <option value="0.06">6%</option>
-            <option value="0.07">7%</option>
-        </select>
+<div class="dashboard-controls-shell">
+    <div class="dashboard-controls">
+        <div class="control-group">
+            <label for="userSelect">View:</label>
+            <select id="userSelect" onchange="loadUserData()">
+                <option value="">-- Choose a view --</option>
+                {% if users %}
+                    {% for user in users %}
+                    <option value="{{ user }}" {% if user == selected_user %}selected{% endif %}>{{ user }}</option>
+                    {% endfor %}
+                {% endif %}
+                <option value="all">All Users</option>
+            </select>
+        </div>
+        <div class="control-group" id="deductionControlGroup">
+            <label class="toggle-inline" for="standardDeductionToggle">
+                <input type="checkbox" id="standardDeductionToggle" onchange="onStandardDeductionToggleChange()">
+                <span>Standard Deductions</span>
+            </label>
+            <span class="control-divider" aria-hidden="true"></span>
+            <label class="control-rate-label" for="deductionRateSelect">Rate:</label>
+            <select id="deductionRateSelect" onchange="onDeductionRateChange()">
+                <option value="0.05">5%</option>
+                <option value="0.06">6%</option>
+                <option value="0.07">7%</option>
+            </select>
+        </div>
     </div>
 </div>
 
