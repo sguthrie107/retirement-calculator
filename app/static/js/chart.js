@@ -8,6 +8,7 @@ let actualTotalsByYear = {};
 let currentSingleUsername = null;
 let currentSingleUserData = null;
 let currentSingleUserMatchScenarios = null;
+let currentAllUsersData = null;
 let selectedDeductionRate = 0.05;
 let isStandardDeductionEnabled = false;
 
@@ -20,9 +21,44 @@ if (window.Chart) {
 const userColors = {
     'Steven': { border: '#1F3A8A', bg: 'rgba(31, 58, 138, 0.12)' },
     'Alyssa': { border: '#C8A44D', bg: 'rgba(200, 164, 77, 0.14)' },
+    'Steven+Alyssa': { border: '#7C3AED', bg: 'rgba(124, 58, 237, 0.14)' },
+    'Alyssa+Steven': { border: '#7C3AED', bg: 'rgba(124, 58, 237, 0.14)' },
+    'Steven + Alyssa Portfolio': { border: '#7C3AED', bg: 'rgba(124, 58, 237, 0.14)' },
     'User3': { border: '#06B6D4', bg: 'rgba(6, 182, 212, 0.1)' },
     'User4': { border: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.1)' },
 };
+
+const sequenceRiskReturns = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025];
+
+function getSequenceRiskReturn(startYear, year) {
+    const offset = Math.max(0, year - startYear);
+    if (offset < sequenceRiskReturns.length) {
+        return sequenceRiskReturns[offset];
+    }
+    return 0.03;
+}
+
+function buildPostRetirementSeries(baseByYear, retirementYear, lifeExpectancyYear, deductionRate) {
+    const output = {};
+    if (!Number.isFinite(retirementYear) || !Number.isFinite(lifeExpectancyYear) || lifeExpectancyYear < retirementYear) {
+        return output;
+    }
+
+    const startBalance = Number(baseByYear[retirementYear] ?? 0);
+    let runningBalance = Math.max(startBalance, 0);
+    const fixedAnnualWithdrawal = Math.max(startBalance * deductionRate, 0);
+    output[retirementYear] = roundToCents(runningBalance);
+
+    for (let year = retirementYear + 1; year <= lifeExpectancyYear; year += 1) {
+        const riskReturn = getSequenceRiskReturn(retirementYear, year);
+        runningBalance = Math.max(runningBalance * (1 + riskReturn), 0);
+        const withdrawal = Math.min(fixedAnnualWithdrawal, runningBalance);
+        runningBalance = Math.max(runningBalance - withdrawal, 0);
+        output[year] = roundToCents(runningBalance);
+    }
+
+    return output;
+}
 
 const stressTierStyles = {
     5: { color: '#166534', bg: '#DCFCE7', border: '#86EFAC' },
@@ -96,9 +132,42 @@ function rerenderCurrentUserChart() {
     }
 }
 
+function resolveHouseholdUsernameFromSelect() {
+    const userSelect = document.getElementById('userSelect');
+    if (!userSelect) {
+        return 'Steven+Alyssa';
+    }
+
+    const candidateValues = Array.from(userSelect.options || []).map((opt) => String(opt.value || '').trim());
+    const normalized = candidateValues.map((value) => value.replace(/\s+/g, '').toLowerCase());
+
+    const preferred = ['alyssa+steven', 'steven+alyssa'];
+    for (const target of preferred) {
+        const idx = normalized.findIndex((value) => value === target);
+        if (idx >= 0) {
+            return candidateValues[idx];
+        }
+    }
+
+    const fuzzyIdx = normalized.findIndex((value) => value.includes('steven') && value.includes('alyssa'));
+    if (fuzzyIdx >= 0) {
+        return candidateValues[fuzzyIdx];
+    }
+
+    return 'Steven+Alyssa';
+}
+
 async function loadUserData() {
     const userSelect = document.getElementById('userSelect');
-    const selectedValue = userSelect ? userSelect.value : '';
+    let selectedValue = userSelect ? String(userSelect.value || '').trim() : '';
+
+    if (selectedValue.toLowerCase() === 'all') {
+        selectedValue = resolveHouseholdUsernameFromSelect();
+        if (userSelect) {
+            userSelect.value = selectedValue;
+        }
+    }
+
     console.log('loadUserData called - userSelect value:', selectedValue);
     
     if (!selectedValue) {
@@ -110,35 +179,18 @@ async function loadUserData() {
     const deltaTable = document.getElementById('deltaTable');
     const stressTestSection = document.getElementById('stressTestSection');
     
-    // Show/hide balance add button and delta table based on selection
-    if (selectedValue === 'all') {
-        console.log('Loading all users view');
-        addBalanceBtn.style.display = 'none';
-        deltaTable.style.display = 'none';
-        if (stressTestSection) {
-            stressTestSection.style.display = 'none';
-        }
-        const deductionControlGroup = document.getElementById('deductionControlGroup');
-        if (deductionControlGroup) {
-            deductionControlGroup.style.display = 'none';
-        }
-        isStandardDeductionEnabled = false;
-        syncDeductionControls();
-        loadAllUsers();
-    } else {
-        console.log('Loading single user:', selectedValue);
-        addBalanceBtn.style.display = 'inline-block';
-        deltaTable.style.display = 'block';
-        if (stressTestSection) {
-            stressTestSection.style.display = 'block';
-        }
-        const deductionControlGroup = document.getElementById('deductionControlGroup');
-        if (deductionControlGroup) {
-            deductionControlGroup.style.display = 'flex';
-        }
-        syncDeductionControls();
-        loadSingleUser(selectedValue);
+    console.log('Loading single user:', selectedValue);
+    addBalanceBtn.style.display = 'inline-block';
+    deltaTable.style.display = 'block';
+    if (stressTestSection) {
+        stressTestSection.style.display = 'block';
     }
+    const deductionControlGroup = document.getElementById('deductionControlGroup');
+    if (deductionControlGroup) {
+        deductionControlGroup.style.display = 'flex';
+    }
+    syncDeductionControls();
+    loadSingleUser(selectedValue);
 }
 
 async function loadSingleUser(username) {
@@ -174,6 +226,7 @@ async function loadSingleUser(username) {
         currentSingleUsername = username;
         currentSingleUserData = data;
         currentSingleUserMatchScenarios = matchScenarios;
+        currentAllUsersData = null;
         selectedDeductionRate = getSelectedDeductionRate();
         const deductionRateSelect = document.getElementById('deductionRateSelect');
         if (deductionRateSelect) {
@@ -201,7 +254,11 @@ async function loadAllUsers() {
         }
         
         const data = await response.json();
-        renderAllUsersChart(data.users);
+        currentSingleUsername = null;
+        currentSingleUserData = null;
+        currentSingleUserMatchScenarios = null;
+        currentAllUsersData = data.users || [];
+        renderAllUsersChart(currentAllUsersData);
     } catch (error) {
         console.error('Error loading all users:', error);
         document.getElementById('retirementChart').innerHTML = 
@@ -393,15 +450,6 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     const scenarioWithdrawalByKey = {
         '3pct': {},
         '5pct': {},
-    };
-
-    const sequenceRiskReturns = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025];
-    const getSequenceRiskReturn = (startYear, year) => {
-        const offset = Math.max(0, year - startYear);
-        if (offset < sequenceRiskReturns.length) {
-            return sequenceRiskReturns[offset];
-        }
-        return 0.03;
     };
 
     let lifeExpectancyYear = null;
@@ -783,61 +831,123 @@ function renderAllUsersChart(usersData) {
         return;
     }
     
-    // Get all unique years across all users
-    const allYears = new Set();
-    let minYear = Infinity;
-    let maxYear = -Infinity;
-    
-    usersData.forEach(user => {
-        user.projected.forEach(d => {
-            allYears.add(d.year);
-            minYear = Math.min(minYear, d.year);
-            maxYear = Math.max(maxYear, d.year);
-        });
-    });
-    
-    // Create complete year range from min to max
-    const years = [];
-    for (let year = minYear; year <= maxYear; year++) {
-        years.push(year);
-    }
-    
-    console.log('All users comparison - Year range:', minYear, 'to', maxYear, ', Total years:', years.length);
-    console.log('Users data received:', usersData.map(u => ({ username: u.username, dataPoints: u.projected.length })));
-    
-    // Create dataset for each user
-    const datasets = usersData.map((user, index) => {
+    const yearsSet = new Set();
+    const deductionEnabled = Boolean(document.getElementById('standardDeductionToggle')?.checked);
+    const deductionRate = getSelectedDeductionRate();
+    const parsedUsers = usersData.map((user, index) => {
         const colors = userColors[user.username] || {
             border: `hsl(${(index * 60) % 360}, 70%, 50%)`,
             bg: `hsla(${(index * 60) % 360}, 70%, 50%, 0.1)`
         };
-        
-        const userBalances = {};
-        user.projected.forEach(d => {
-            userBalances[d.year] = d.balance;
+
+        const projectedByYear = {};
+        const projectedAccountsByYear = {};
+        const actualByYear = {};
+        const actualAccountsByYear = {};
+
+        (user.projected || []).forEach((point) => {
+            if (!Number.isFinite(Number(point.year))) return;
+            const year = Number(point.year);
+            projectedByYear[year] = Number(point.balance ?? 0);
+            projectedAccountsByYear[year] = point.account_balances || {};
+            yearsSet.add(year);
         });
-        
-        const dataArray = years.map(year => userBalances[year] !== undefined ? userBalances[year] : null);
-        console.log(`${user.username} - Data array length: ${dataArray.length}, Years covered: ${user.projected.length}, Data points:`, {
-            firstYear: user.projected[0]?.year,
-            lastYear: user.projected[user.projected.length - 1]?.year,
-            firstDataValue: dataArray[0],
-            lastDataValue: dataArray[dataArray.length - 1],
-            nullCount: dataArray.filter(v => v === null).length
+
+        (user.actual || []).forEach((point) => {
+            if (!Number.isFinite(Number(point.year))) return;
+            const year = Number(point.year);
+            actualByYear[year] = Number(point.balance ?? 0);
+            actualAccountsByYear[year] = point.account_balances || {};
+            yearsSet.add(year);
         });
-        
+
+        const retirementYear = Number(user.retirement_year || 0);
+        const lifeExpectancyAge = Number(user.life_expectancy_age || 0);
+        let lifeExpectancyYear = null;
+        if (Number.isFinite(retirementYear) && retirementYear > 0 && Number.isFinite(lifeExpectancyAge) && lifeExpectancyAge > 0) {
+            const retirementAge = Number(user.retirement_age || 0);
+            if (Number.isFinite(retirementAge) && retirementAge > 0) {
+                const currentYearApprox = retirementYear - retirementAge;
+                lifeExpectancyYear = currentYearApprox + lifeExpectancyAge;
+            }
+        }
+
+        if (deductionEnabled && Number.isFinite(lifeExpectancyYear) && Number.isFinite(retirementYear) && retirementYear > 0) {
+            const postSeries = buildPostRetirementSeries(projectedByYear, retirementYear, lifeExpectancyYear, deductionRate);
+            Object.keys(postSeries).forEach((yearKey) => {
+                const year = Number(yearKey);
+                projectedByYear[year] = postSeries[year];
+                yearsSet.add(year);
+            });
+        }
+
         return {
-            label: `${user.username} - Projected`,
-            data: dataArray,
-            borderColor: colors.border,
-            backgroundColor: colors.bg,
-            borderWidth: 2.5,
-            fill: false,
-            tension: 0.1,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-            spanGaps: true,
+            username: user.username,
+            colors,
+            projectedByYear,
+            projectedAccountsByYear,
+            actualByYear,
+            actualAccountsByYear,
+            isPortfolio: Boolean(user.is_portfolio),
         };
+    });
+
+    const years = Array.from(yearsSet).sort((a, b) => a - b);
+
+    if (years.length === 0) {
+        document.getElementById('retirementChart').innerHTML = '<p class="loading">No projected data available</p>';
+        return;
+    }
+
+    console.log('All users comparison - Year range:', years[0], 'to', years[years.length - 1], ', Total years:', years.length);
+
+    const datasets = [];
+    parsedUsers.forEach((user) => {
+        const projectedSeries = years.map((year) => Object.prototype.hasOwnProperty.call(user.projectedByYear, year) ? user.projectedByYear[year] : null);
+        datasets.push({
+            label: `${user.username} - Projected`,
+            data: projectedSeries,
+            borderColor: user.colors.border,
+            backgroundColor: user.colors.bg,
+            borderWidth: user.isPortfolio ? 3 : 2.5,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: isMobileViewport ? 7 : 10,
+            pointHoverBorderColor: '#FFFFFF',
+            pointHoverBorderWidth: 2,
+            spanGaps: true,
+            custom: {
+                username: user.username,
+                seriesType: 'projected',
+                accountByYear: user.projectedAccountsByYear,
+            },
+        });
+
+        const hasActual = Object.keys(user.actualByYear).length > 0;
+        if (hasActual) {
+            const actualSeries = years.map((year) => Object.prototype.hasOwnProperty.call(user.actualByYear, year) ? user.actualByYear[year] : null);
+            datasets.push({
+                label: `${user.username} - Actual`,
+                data: actualSeries,
+                borderColor: user.colors.border,
+                backgroundColor: user.colors.bg,
+                borderWidth: user.isPortfolio ? 2.6 : 2.2,
+                borderDash: [8, 5],
+                fill: false,
+                tension: 0.4,
+                pointRadius: isMobileViewport ? 3 : 5,
+                pointHoverRadius: isMobileViewport ? 7 : 10,
+                pointHoverBorderColor: '#FFFFFF',
+                pointHoverBorderWidth: 2,
+                spanGaps: true,
+                custom: {
+                    username: user.username,
+                    seriesType: 'actual',
+                    accountByYear: user.actualAccountsByYear,
+                },
+            });
+        }
     });
     
     chartInstance = new Chart(ctx, {
@@ -856,6 +966,8 @@ function renderAllUsersChart(usersData) {
                         color: '#0F172A',
                         font: { size: isMobileViewport ? 11 : 14, weight: '600' },
                         padding: isMobileViewport ? 10 : 20,
+                        boxWidth: isMobileViewport ? 14 : 20,
+                        boxHeight: isMobileViewport ? 8 : 12,
                         usePointStyle: true,
                         pointStyle: 'circle',
                     },
@@ -882,16 +994,19 @@ function renderAllUsersChart(usersData) {
                     bodyColor: '#E2E8F0',
                     borderColor: '#334155',
                     borderWidth: 1,
-                    padding: 16,
+                    padding: isMobileViewport ? 10 : 16,
                     cornerRadius: 12,
                     displayColors: true,
                     usePointStyle: true,
                     boxPadding: 6,
                     titleMarginBottom: 10,
                     bodySpacing: 6,
-                    titleFont: { size: 14, weight: '700' },
-                    bodyFont: { size: 13, weight: '600' },
+                    titleFont: { size: isMobileViewport ? 12 : 14, weight: '700' },
+                    bodyFont: { size: isMobileViewport ? 11 : 13, weight: '600' },
                     callbacks: {
+                        title: function(context) {
+                            return 'Year ' + (context?.[0]?.label ?? '');
+                        },
                         labelPointStyle: function() {
                             return {
                                 pointStyle: 'circle',
@@ -912,6 +1027,30 @@ function renderAllUsersChart(usersData) {
                                 }).format(context.parsed.y);
                             }
                             return label;
+                        },
+                        afterLabel: function(context) {
+                            const year = Number(context.label);
+                            const custom = context.dataset.custom || {};
+                            const accountByYear = custom.accountByYear || {};
+                            const balances = accountByYear[year] || {};
+                            const k401 = Number(balances['401k'] ?? balances['k401'] ?? balances['401K'] ?? 0);
+                            const ira = Number(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra'] ?? 0);
+
+                            if (k401 <= 0 && ira <= 0) {
+                                return [];
+                            }
+
+                            const formatCurrency = (value) => new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            }).format(value);
+
+                            return [
+                                `401k: ${formatCurrency(k401)}`,
+                                `Roth IRA: ${formatCurrency(ira)}`,
+                            ];
                         }
                     }
                 }
@@ -921,16 +1060,16 @@ function renderAllUsersChart(usersData) {
                     title: {
                         display: true,
                         text: 'Year',
-                        color: '#475569',
+                        color: '#B3B3B3',
                         font: { size: 13, weight: '600' }
                     },
                     grid: { 
-                        color: 'rgba(226, 232, 240, 0.8)',
+                        color: 'rgba(45, 45, 45, 0.5)',
                         drawBorder: false
                     },
                     ticks: {
-                        color: '#64748B',
-                        font: { size: 12 },
+                        color: '#6B6B6B',
+                        font: { size: isMobileViewport ? 10 : 12 },
                         autoSkip: false,
                         callback: createYearTickCallback(4)
                     }
@@ -939,12 +1078,12 @@ function renderAllUsersChart(usersData) {
                     title: {
                         display: true,
                         text: 'Balance ($)',
-                        color: '#475569',
+                        color: '#B3B3B3',
                         font: { size: 13, weight: '600' }
                     },
                     ticks: {
-                        color: '#64748B',
-                        font: { size: 12 },
+                        color: '#6B6B6B',
+                        font: { size: isMobileViewport ? 10 : 12 },
                         callback: function(value) {
                             return new Intl.NumberFormat('en-US', {
                                 style: 'currency',
@@ -955,7 +1094,7 @@ function renderAllUsersChart(usersData) {
                         }
                     },
                     grid: { 
-                        color: 'rgba(226, 232, 240, 0.8)',
+                        color: 'rgba(45, 45, 45, 0.5)',
                         drawBorder: false
                     }
                 }

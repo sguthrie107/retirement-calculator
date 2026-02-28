@@ -896,6 +896,12 @@ def run_joint_stress_test(
         float(household_retirement_spending.get("annual_general_living_expenses", 0.0))
         + float(household_retirement_spending.get("annual_medical_quality_of_life_expenses", 0.0))
     ) if household_retirement_spending else 0.0
+    enforce_retirement_spending_floor = bool(
+        household_retirement_spending and household_retirement_spending.get("enforce_floor", False)
+    )
+    apply_debt_contribution_reduction = any(
+        bool(debt.get("reduce_contributions_during_paydown", False)) for debt in debt_configs
+    )
 
     # Simulate until the youngest member would reach life_expectancy_age
     youngest_age = min(current_ages)
@@ -1003,7 +1009,7 @@ def run_joint_stress_test(
                 else:
                     annual_withdrawal *= (1.0 + inflation)
 
-                if base_retirement_spending_annual > 0.0:
+                if enforce_retirement_spending_floor and base_retirement_spending_annual > 0.0:
                     simulation_year = current_year + _year_idx
                     years_since_spending_base = max(0, simulation_year - retirement_spending_base_year)
                     annual_spending_floor = base_retirement_spending_annual * ((1.0 + inflation) ** years_since_spending_base)
@@ -1054,7 +1060,7 @@ def run_joint_stress_test(
                     planned_contributions[i] += rental_net_cashflow * member_weight
 
             total_planned = sum(planned_contributions)
-            if total_planned > 0 and total_debt_payment > 0:
+            if apply_debt_contribution_reduction and total_planned > 0 and total_debt_payment > 0:
                 reduction_ratio = min(1.0, total_debt_payment / total_planned)
                 planned_contributions = [value * (1.0 - reduction_ratio) for value in planned_contributions]
 
@@ -1176,7 +1182,7 @@ def run_joint_stress_test(
             "inflation_rate": inflation,
             "ira_contributions_included": True,
             "social_security_offsets_withdrawals": True,
-            "retirement_spending_floor_enabled": base_retirement_spending_annual > 0.0,
+            "retirement_spending_floor_enabled": enforce_retirement_spending_floor,
             "retirement_spending_floor_annual_2026": round(base_retirement_spending_annual, 2),
         },
         "social_security": {
@@ -1197,7 +1203,7 @@ def run_joint_stress_test(
             "enabled": len(debt_configs) > 0,
             "debts": debt_configs,
             "policy": {
-                "payments_reduce_available_401k_contributions": True,
+                "payments_reduce_available_401k_contributions": apply_debt_contribution_reduction,
                 "post_payoff_contribution_step_pct": round(POST_DEBT_CONTRIBUTION_STEP_PCT * 100.0, 2),
                 "post_payoff_contribution_cap_pct": round(POST_DEBT_CONTRIBUTION_CAP_PCT * 100.0, 2),
             },
@@ -1211,7 +1217,7 @@ def run_joint_stress_test(
         "retirement_spending_goals": {
             "enabled": household_retirement_spending is not None,
             "config": household_retirement_spending,
-            "treatment": "Annual spending floor in base-year dollars, inflation-indexed and enforced after first retirement",
+            "treatment": "Annual spending floor in base-year dollars, inflation-indexed and only enforced when config sets enforce_floor=true",
         },
         "portfolio_management": {
             "retirement_rebalance_target_bonds_pct": int(RETIREMENT_BOND_TARGET_PCT * 100),

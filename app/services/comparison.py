@@ -480,45 +480,48 @@ def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
         All projections extended to same end year with null values for padding.
     """
     users = db.query(User).all()
-    
+
     users_data = []
-    max_year = 0
-    
-    # First pass: get all projections and find max year
-    all_projections = []
+    usernames = {u.name for u in users}
+
     for user in users:
         try:
-            projection_data = get_user_projection(user.name, current_year)
-            projected = projection_data["projected"]
-            all_projections.append({
-                "username": user.name,
-                "projected": projected
-            })
-            # Track the maximum year across all users
-            if projected:
-                max_year = max(max_year, max(p["year"] for p in projected))
+            comparison = get_comparison_data(user.name, db, current_year)
+            users_data.append(
+                {
+                    "username": user.name,
+                    "projected": comparison.get("projected", []),
+                    "actual": comparison.get("actual", []),
+                    "retirement_age": comparison.get("retirement_age"),
+                    "retirement_year": comparison.get("retirement_year"),
+                    "life_expectancy_age": comparison.get("life_expectancy_age"),
+                    "withdrawal_pct": comparison.get("withdrawal_pct"),
+                }
+            )
         except Exception:
-            # Skip users that can't be projected
             continue
-    
-    # Second pass: pad all projections to max_year
-    for user_proj in all_projections:
-        projected = user_proj["projected"]
-        
-        if projected and max_year > 0:
-            # Create a set of years that already have data
-            existing_years = {p["year"] for p in projected}
-            
-            # Add null entries for missing years from max year of this user to max_year
-            last_year = max(p["year"] for p in projected)
-            for year in range(last_year + 1, max_year + 1):
-                projected.append({"year": year, "balance": None})
-            
-            # Sort by year
-            projected.sort(key=lambda x: x["year"])
-        
-        users_data.append(user_proj)
-    
+
+    existing_labels = {str(item.get("username", "")).replace(" ", "").lower() for item in users_data}
+    has_existing_joint = any(label in {"steven+alyssa", "alyssa+steven", "steven,alyssa", "alyssa,steven"} for label in existing_labels)
+
+    if {"Steven", "Alyssa"}.issubset(usernames) and not has_existing_joint:
+        try:
+            household = get_comparison_data("Steven+Alyssa", db, current_year)
+            users_data.append(
+                {
+                    "username": "Steven + Alyssa Portfolio",
+                    "projected": household.get("projected", []),
+                    "actual": household.get("actual", []),
+                    "retirement_age": household.get("retirement_age"),
+                    "retirement_year": household.get("retirement_year"),
+                    "life_expectancy_age": household.get("life_expectancy_age"),
+                    "withdrawal_pct": household.get("withdrawal_pct"),
+                    "is_portfolio": True,
+                }
+            )
+        except Exception:
+            pass
+
     return {"users": users_data}
 
 
