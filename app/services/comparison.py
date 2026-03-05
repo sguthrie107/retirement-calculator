@@ -38,7 +38,8 @@ def _load_user_profile(username: str) -> dict:
 
 
 def _sum_account_balances(account_balances: dict) -> float:
-    return round(float(account_balances.get("401k", 0.0)) + float(account_balances.get("roth_ira", 0.0)), 2)
+    """Sum all account balance values in the dict."""
+    return round(sum(float(v) for v in account_balances.values()), 2)
 
 
 def _combine_account_balances(existing: dict[str, float], incoming: dict[str, float]) -> dict[str, float]:
@@ -329,6 +330,11 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
                         "401k": round(float(account_balances.get("401k", 0.0)) * scale_factor, 2),
                         "roth_ira": round(float(account_balances.get("roth_ira", 0.0)) * scale_factor, 2),
                     }
+                    # Rental is an independent cashflow stream anchored to its own
+                    # real cashflow model — carry it forward unscaled.
+                    rental_balance = float(account_balances.get("rental", 0.0))
+                    if rental_balance > 0:
+                        scaled_accounts["rental"] = round(rental_balance, 2)
                     scaled_total = _sum_account_balances(scaled_accounts)
                 else:
                     scaled_accounts = {}
