@@ -8,6 +8,9 @@ from ..models import User, Account, ActualBalance
 from .projection import get_user_projection
 
 
+ACTUAL_BALANCE_YEAR_OFFSET = -1
+
+
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
@@ -56,6 +59,14 @@ def _latest_timestamp(ts_a, ts_b):
         return ts_b if b >= a else ts_a
     except Exception:
         return ts_b
+
+
+def _normalize_actual_balance_year(stored_year: int) -> int:
+    return int(stored_year) + ACTUAL_BALANCE_YEAR_OFFSET
+
+
+def _normalize_chart_seed_year(stored_year: int) -> int:
+    return _normalize_actual_balance_year(stored_year)
 
 
 def _aggregate_projected_series(series_list: list[list[dict]]) -> list[dict]:
@@ -136,6 +147,53 @@ def _aggregate_actual_series(series_list: list[list[dict]]) -> list[dict]:
     return [by_year[year] for year in sorted(by_year.keys())]
 
 
+def _ensure_continuous_projected_series(projected: list[dict]) -> list[dict]:
+    valid_points = [point for point in projected if int(point.get("year", 0)) > 0]
+    if not valid_points:
+        return []
+
+    by_year = {int(point.get("year", 0)): dict(point) for point in valid_points}
+    years = sorted(by_year.keys())
+    if len(years) <= 1:
+        return [by_year[year] for year in years]
+
+    filled: dict[int, dict] = {year: by_year[year] for year in years}
+    for idx in range(len(years) - 1):
+        start_year = years[idx]
+        end_year = years[idx + 1]
+        gap = end_year - start_year
+        if gap <= 1:
+            continue
+
+        start_point = by_year[start_year]
+        end_point = by_year[end_year]
+
+        start_total = float(start_point.get("balance", 0.0))
+        end_total = float(end_point.get("balance", 0.0))
+        start_401k = float(start_point.get("account_balances", {}).get("401k", 0.0))
+        end_401k = float(end_point.get("account_balances", {}).get("401k", 0.0))
+        start_ira = float(start_point.get("account_balances", {}).get("roth_ira", 0.0))
+        end_ira = float(end_point.get("account_balances", {}).get("roth_ira", 0.0))
+
+        for offset in range(1, gap):
+            fraction = offset / gap
+            year = start_year + offset
+            interpolated_401k = start_401k + (end_401k - start_401k) * fraction
+            interpolated_ira = start_ira + (end_ira - start_ira) * fraction
+            interpolated_total = start_total + (end_total - start_total) * fraction
+
+            filled[year] = {
+                "year": year,
+                "balance": round(interpolated_total, 2),
+                "account_balances": {
+                    "401k": round(interpolated_401k, 2),
+                    "roth_ira": round(interpolated_ira, 2),
+                },
+            }
+
+    return [filled[year] for year in sorted(filled.keys())]
+
+
 def _estimated_annual_contribution(profile: dict, years_since_base: int = 0) -> float:
     contribution = profile.get("contribution_details", {})
     salary = float(contribution.get("annual_salary", 0.0))
@@ -162,18 +220,23 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
         if first_native_year <= 0:
             return projected
 
-        target_years = sorted({int(year) for year in projected_backcast.get("years", []) if int(year) > 0})
+        target_years = sorted({
+            _normalize_chart_seed_year(int(year))
+            for year in projected_backcast.get("years", [])
+            if int(year) > 0
+        })
         if not target_years:
             return projected
 
         actual_seed_map = {
-            int(item.get("year", 0)): item
+            _normalize_chart_seed_year(int(item.get("year", 0))): item
             for item in seed.get("actual_balances", [])
             if int(item.get("year", 0)) > 0
         }
         native_by_year = {int(item.get("year", 0)): dict(item) for item in native_projected}
 
-        anchor_year = int(projected_backcast.get("anchor_year", min(target_years)))
+        raw_anchor_year = int(projected_backcast.get("anchor_year", min(target_years)))
+        anchor_year = _normalize_chart_seed_year(raw_anchor_year)
         anchor_accounts: dict[str, float] = {}
         anchor_total = 0.0
 
@@ -251,9 +314,35 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
             if int(point.get("year", 0)) > 0
         }
 
-        for year in target_years:
-            if year in rebased_by_year:
-                merged[year] = rebased_by_year[year]
+        native_first_total = float(native_by_year.get(first_native_year, {}).get("balance", 0.0))
+        rebased_first_total = float(rebased_by_year.get(first_native_year, {}).get("balance", 0.0))
+        scale_factor = (rebased_first_total / native_first_total) if native_first_total > 0 else 1.0
+
+        if scale_factor > 0 and abs(scale_factor - 1.0) > 1e-6:
+            for year, point in list(merged.items()):
+                if year <= first_native_year:
+                    continue
+
+                account_balances = point.get("account_balances", {}) or {}
+                if account_balances:
+                    scaled_accounts = {
+                        "401k": round(float(account_balances.get("401k", 0.0)) * scale_factor, 2),
+                        "roth_ira": round(float(account_balances.get("roth_ira", 0.0)) * scale_factor, 2),
+                    }
+                    scaled_total = _sum_account_balances(scaled_accounts)
+                else:
+                    scaled_accounts = {}
+                    scaled_total = round(float(point.get("balance", 0.0)) * scale_factor, 2)
+
+                merged[year] = {
+                    **point,
+                    "year": year,
+                    "balance": scaled_total,
+                    "account_balances": scaled_accounts,
+                }
+
+        for year, rebased_point in rebased_by_year.items():
+            merged[year] = rebased_point
 
         return [merged[year] for year in sorted(merged.keys())]
 
@@ -332,7 +421,7 @@ def _apply_actual_chart_seed(actual: list[dict], profile: dict) -> list[dict]:
 
     by_year = {int(item.get("year", 0)): item for item in actual}
     for item in seed_actual:
-        year = int(item.get("year", 0))
+        year = _normalize_chart_seed_year(int(item.get("year", 0)))
         if year <= 0:
             continue
 
@@ -368,6 +457,7 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     if joint_usernames:
         member_results = [get_comparison_data(member, db, current_year) for member in joint_usernames]
         projected = _aggregate_projected_series([result.get("projected", []) for result in member_results])
+        projected = _ensure_continuous_projected_series(projected)
         actual = _aggregate_actual_series([result.get("actual", []) for result in member_results])
         deltas = compute_deltas(projected, actual)
 
@@ -386,6 +476,7 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     projected = projection_data["projected"]
     profile = _load_user_profile(username)
     projected = _apply_projected_chart_seed(projected, profile)
+    projected = _ensure_continuous_projected_series(projected)
     retirement_age = int(profile.get("retirement_age", 65))
     current_age = int(profile.get("age", 35))
     retirement_year = current_year + max(0, retirement_age - current_age)
@@ -423,7 +514,9 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
         # Combine 401k + IRA by year, tracking separate balances
         actual_by_year = {}
         for ab in actuals_401k + actuals_ira:
-            year = ab.year
+            year = _normalize_actual_balance_year(ab.year)
+            if year <= 0:
+                continue
             actual_by_year[year] = actual_by_year.get(year, 0) + ab.balance
             
             # Track account-specific balance
@@ -541,21 +634,36 @@ def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
     
     for a in actual:
         year = a["year"]
-        if year in proj_by_year:
-            proj_bal = proj_by_year[year]
-            actual_bal = a["balance"]
-            diff = actual_bal - proj_bal
-            pct = (diff / proj_bal * 100) if proj_bal else 0
-            
+        proj_bal = proj_by_year.get(year)
+        actual_bal = a["balance"]
+
+        if proj_bal is None:
             deltas.append({
                 "year": year,
-                "projected": round(proj_bal, 2),
+                "projected": 0.0,
                 "actual": round(actual_bal, 2),
-                "delta": round(diff, 2),
-                "delta_pct": round(pct, 2),
+                "delta": 0.0,
+                "delta_pct": 0.0,
+                "has_projection": False,
                 "balance_ids": a.get("balance_ids", []),
                 "timestamp": a.get("timestamp"),
                 "account_balances": a.get("account_balances", {}),
             })
+            continue
+
+        diff = actual_bal - proj_bal
+        pct = (diff / proj_bal * 100) if proj_bal else 0
+
+        deltas.append({
+            "year": year,
+            "projected": round(proj_bal, 2),
+            "actual": round(actual_bal, 2),
+            "delta": round(diff, 2),
+            "delta_pct": round(pct, 2),
+            "has_projection": True,
+            "balance_ids": a.get("balance_ids", []),
+            "timestamp": a.get("timestamp"),
+            "account_balances": a.get("account_balances", {}),
+        })
     
     return deltas

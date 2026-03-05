@@ -5,9 +5,10 @@ from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 import json
 from pathlib import Path
+from datetime import datetime
 
 from .config import DATABASE_URL
-from .models import Base, User
+from .models import Base, User, Account, ActualBalance
 
 log = logging.getLogger(__name__)
 
@@ -36,10 +37,54 @@ def seed_default_users():
         
         # Insert each user if not already present
         for user_data in data.get("users", []):
-            existing_user = db.query(User).filter(User.name == user_data["name"]).first()
+            username = user_data["name"]
+            existing_user = db.query(User).filter(User.name == username).first()
             if not existing_user:
-                new_user = User(name=user_data["name"])
-                db.add(new_user)
+                existing_user = User(name=username)
+                db.add(existing_user)
+                db.flush()
+
+            chart_seed = user_data.get("chart_seed", {})
+            seed_actual_balances = chart_seed.get("actual_balances", [])
+
+            for seed_row in seed_actual_balances:
+                year = int(seed_row.get("year", 0))
+                if year <= 0:
+                    continue
+
+                account_balances = seed_row.get("account_balances", {})
+                for account_type in ("401k", "roth_ira"):
+                    seeded_balance = account_balances.get(account_type)
+                    if seeded_balance is None:
+                        continue
+
+                    account = (
+                        db.query(Account)
+                        .filter(Account.user_id == existing_user.id, Account.account_type == account_type)
+                        .first()
+                    )
+                    if not account:
+                        account = Account(user_id=existing_user.id, account_type=account_type)
+                        db.add(account)
+                        db.flush()
+
+                    existing_actual = (
+                        db.query(ActualBalance)
+                        .filter(ActualBalance.account_id == account.id, ActualBalance.year == year)
+                        .first()
+                    )
+                    if existing_actual:
+                        continue
+
+                    db.add(
+                        ActualBalance(
+                            account_id=account.id,
+                            year=year,
+                            balance=float(seeded_balance),
+                            notes="Seeded from users.json chart_seed.actual_balances",
+                            recorded_at=datetime.utcnow().isoformat(),
+                        )
+                    )
         
         db.commit()
     except Exception:

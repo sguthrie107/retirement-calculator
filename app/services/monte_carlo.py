@@ -792,6 +792,42 @@ def get_latest_stress_test(username: str, db: Session) -> StressTestResult | Non
     )
 
 
+def is_stress_test_snapshot_stale(
+    username: str,
+    stress_result: StressTestResult,
+    db: Session,
+    tolerance: float = 1.0,
+) -> bool:
+    """Return True when saved stress assumptions no longer match current starting balances."""
+    if stress_result is None:
+        return False
+
+    db_user = db.query(User).filter(User.name == username).first()
+    if not db_user:
+        raise ValueError(f"User '{username}' not found in database")
+
+    profile = _load_user_profile(username)
+    current_401k, current_ira = _starting_balances(db, db_user, profile)
+    current_total = round(current_401k + current_ira, 2)
+
+    try:
+        assumptions = json.loads(stress_result.assumptions_json or "{}")
+    except Exception:
+        return True
+
+    snapshot = assumptions.get("portfolio_snapshot", {})
+    stored_total_raw = snapshot.get("starting_total_balance")
+    if stored_total_raw is None:
+        return True
+
+    try:
+        stored_total = float(stored_total_raw)
+    except (TypeError, ValueError):
+        return True
+
+    return abs(stored_total - current_total) > tolerance
+
+
 def to_response_payload(stress_result: StressTestResult, username: str) -> dict[str, Any]:
     assumptions = json.loads(stress_result.assumptions_json)
     return {

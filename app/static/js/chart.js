@@ -157,6 +157,119 @@ function resolveHouseholdUsernameFromSelect() {
     return 'Steven+Alyssa';
 }
 
+function formatSignedPct(value) {
+    if (!Number.isFinite(Number(value))) return '—';
+    const numeric = Number(value);
+    const sign = numeric > 0 ? '+' : '';
+    return `${sign}${numeric.toFixed(2)}%`;
+}
+
+function formatSignedCurrency(value) {
+    if (!Number.isFinite(Number(value))) return '—';
+    const numeric = Number(value);
+    const sign = numeric > 0 ? '+' : '';
+    return `${sign}${formatCurrency(Math.abs(numeric))}`;
+}
+
+function getTrendClass(change) {
+    if (!Number.isFinite(Number(change))) return '';
+    const numeric = Number(change);
+    if (numeric > 0) return 'trend-up';
+    if (numeric < 0) return 'trend-down';
+    return '';
+}
+
+function renderHoldingsCard(payload) {
+    const section = document.getElementById('holdingsSection');
+    const content = document.getElementById('holdingsContent');
+    const asOf = document.getElementById('holdingsAsOf');
+    if (!section || !content) {
+        return;
+    }
+
+    section.style.display = 'block';
+
+    if (!payload || !Array.isArray(payload.holdings) || payload.holdings.length === 0) {
+        if (asOf) {
+            asOf.textContent = '';
+        }
+        content.innerHTML = '<p class="loading">No holdings configured for the current phase.</p>';
+        return;
+    }
+
+    const asOfText = payload.as_of_date ? `As of ${payload.as_of_date} • Year ${payload.as_of_year}` : '';
+    if (asOf) {
+        asOf.textContent = asOfText;
+    }
+
+    const rowsHtml = payload.holdings.map((row) => {
+        const trendClass = getTrendClass(row.day_change_pct);
+        const priceDisplay = Number.isFinite(Number(row.price)) ? formatCurrency(Number(row.price)) : '—';
+        return `
+            <tr>
+                <td>${row.account_type === '401k' ? '401k' : 'IRA'}</td>
+                <td>${row.ticker}</td>
+                <td>${row.label || row.ticker}</td>
+                <td>${Number(row.allocation_pct || 0).toFixed(1)}%</td>
+                <td>${Number(row.portfolio_weight_pct || 0).toFixed(1)}%</td>
+                <td>${priceDisplay}</td>
+                <td class="${trendClass}">${formatSignedCurrency(row.day_change)}</td>
+                <td class="${trendClass}">${formatSignedPct(row.day_change_pct)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    content.innerHTML = `
+        <table class="holdings-table">
+            <thead>
+                <tr>
+                    <th>Account</th>
+                    <th>Ticker</th>
+                    <th>Fund</th>
+                    <th>Acct Weight</th>
+                    <th>Portfolio Wt</th>
+                    <th>Price</th>
+                    <th>Day $</th>
+                    <th>Day %</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>
+    `;
+}
+
+async function loadHoldings(username) {
+    const section = document.getElementById('holdingsSection');
+    const content = document.getElementById('holdingsContent');
+    const asOf = document.getElementById('holdingsAsOf');
+    if (!section || !content) {
+        return;
+    }
+
+    section.style.display = 'block';
+    if (asOf) {
+        asOf.textContent = '';
+    }
+
+    if (String(username || '').includes('+') || String(username || '').includes(',')) {
+        content.innerHTML = '<p class="loading">Holdings are available for individual user views.</p>';
+        return;
+    }
+
+    content.innerHTML = '<p class="loading">Loading holdings...</p>';
+
+    try {
+        const response = await fetch(`/api/holdings/${username}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const payload = await response.json();
+        renderHoldingsCard(payload);
+    } catch (error) {
+        content.innerHTML = `<p class="loading" style="color: #9A3412;">Unable to load holdings: ${error.message}</p>`;
+    }
+}
+
 async function loadUserData() {
     const userSelect = document.getElementById('userSelect');
     let selectedValue = userSelect ? String(userSelect.value || '').trim() : '';
@@ -172,6 +285,10 @@ async function loadUserData() {
     
     if (!selectedValue) {
         console.log('No user selected');
+        const holdingsSection = document.getElementById('holdingsSection');
+        if (holdingsSection) {
+            holdingsSection.style.display = 'none';
+        }
         return;
     }
     
@@ -236,6 +353,7 @@ async function loadSingleUser(username) {
 
         renderSingleUserChart(username, data, matchScenarios);
         renderDeltaTable(data.deltas);
+        await loadHoldings(username);
         await syncStressTestUiForSelection(username);
     } catch (error) {
         console.error('Error loading user data:', error);
@@ -243,6 +361,14 @@ async function loadSingleUser(username) {
             `<p class="loading" style="color: #9A3412;">Error loading data: ${error.message}</p>`;
         document.getElementById('retirementChart').innerHTML =
             `<p class="loading" style="color: #9A3412;">Error loading data: ${error.message}</p>`;
+        const holdingsContent = document.getElementById('holdingsContent');
+        const holdingsSection = document.getElementById('holdingsSection');
+        if (holdingsSection) {
+            holdingsSection.style.display = 'block';
+        }
+        if (holdingsContent) {
+            holdingsContent.innerHTML = `<p class="loading" style="color: #9A3412;">Error loading holdings: ${error.message}</p>`;
+        }
     }
 }
 
@@ -282,8 +408,14 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         console.log('First actual entry:', data.actual[0]);
     }
     
-    // Extract years from projected data
-    const baseYears = data.projected.map(d => d.year);
+    // Extract years from projected + actual data so actual-only years render on chart
+    const projectedYears = data.projected
+        .map((point) => Number(point.year))
+        .filter((year) => Number.isFinite(year) && year > 0);
+    const actualYears = data.actual
+        .map((point) => Number(point.year))
+        .filter((year) => Number.isFinite(year) && year > 0);
+    const baseYears = Array.from(new Set([...projectedYears, ...actualYears])).sort((a, b) => a - b);
     
     // Create actual data array matching projected years (null for missing years)
     const actualByYear = {};
@@ -305,7 +437,11 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         actualAccountBalancesByYear[d.year] = d.account_balances || {};
     });
     
-    const projectedData = data.projected.map(d => d.balance);
+    const projectedData = baseYears.map((year) => (
+        Object.prototype.hasOwnProperty.call(projectedTotalsByYear, year)
+            ? projectedTotalsByYear[year]
+            : null
+    ));
     const actualData = baseYears.map(year => actualByYear[year] || null);
     const toNumber = (value) => {
         if (value === null || value === undefined || value === '') return 0;
@@ -327,8 +463,8 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     const default401kWeight = seedTotal > 0 ? (seed401k / seedTotal) : 0.6;
     const defaultIraWeight = 1 - default401kWeight;
 
-    const projected401kData = data.projected.map((d, idx) => {
-        const balances = d.account_balances || {};
+    const projected401kData = baseYears.map((year, idx) => {
+        const balances = projectedAccountBalancesByYear[year] || {};
         const projectedTotal = toNumber(projectedData[idx]);
         const direct401k = toNumber(balances['401k'] ?? balances['k401'] ?? balances['401K']);
         const directIra = toNumber(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra']);
@@ -338,8 +474,8 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         if (projectedTotal > 0) return projectedTotal * default401kWeight;
         return 0;
     });
-    const projectedIraData = data.projected.map((d, idx) => {
-        const balances = d.account_balances || {};
+    const projectedIraData = baseYears.map((year, idx) => {
+        const balances = projectedAccountBalancesByYear[year] || {};
         const projectedTotal = toNumber(projectedData[idx]);
         const direct401k = toNumber(balances['401k'] ?? balances['k401'] ?? balances['401K']);
         const directIra = toNumber(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra']);
@@ -1117,7 +1253,7 @@ function renderDeltaTable(deltas) {
     
     console.log('renderDeltaTable - deltas received:', deltas);
     
-    let html = '<table><thead><tr>';
+    let html = '<table class="performance-comparison-table"><thead><tr>';
     html += '<th>Year</th>';
     html += '<th>Projected</th>';
     html += '<th>Actual</th>';
@@ -1128,8 +1264,10 @@ function renderDeltaTable(deltas) {
     html += '</tr></thead><tbody>';
     
     deltas.forEach((delta, idx) => {
-        const diffClass = delta.delta >= 0 ? 'positive' : 'negative';
-        const diffSign = delta.delta >= 0 ? '+' : '';
+        const hasProjected = delta.has_projection !== false;
+        const hasDelta = hasProjected && Number.isFinite(Number(delta.delta));
+        const diffClass = !hasDelta ? '' : (delta.delta >= 0 ? 'positive' : 'negative');
+        const diffSign = hasDelta && delta.delta >= 0 ? '+' : '';
         const balanceIdStr = delta.balance_ids ? delta.balance_ids.join(',') : '';
         
         // Format timestamp to EST timezone
@@ -1161,10 +1299,10 @@ function renderDeltaTable(deltas) {
         
         html += '<tr>';
         html += `<td><strong>${delta.year}</strong></td>`;
-        html += `<td>${formatCurrency(delta.projected)}</td>`;
+        html += `<td>${hasProjected ? formatCurrency(delta.projected) : '—'}</td>`;
         html += `<td>${formatCurrency(delta.actual)}</td>`;
-        html += `<td class="${diffClass}">${diffSign}${formatCurrency(delta.delta)}</td>`;
-        html += `<td class="${diffClass}">${diffSign}${delta.delta_pct.toFixed(2)}%</td>`;
+        html += `<td class="${diffClass}">${hasDelta ? `${diffSign}${formatCurrency(delta.delta)}` : '—'}</td>`;
+        html += `<td class="${diffClass}">${hasDelta ? `${diffSign}${Number(delta.delta_pct).toFixed(2)}%` : '—'}</td>`;
         html += `<td>${timestampDisplay}</td>`;
         html += `<td class="action-buttons">
                     <button type="button" class="btn-edit" data-balance-ids="${balanceIdStr}" data-year="${delta.year}" data-balance="${delta.actual}" title="Edit">✏️</button>
@@ -1345,7 +1483,7 @@ function renderStressTestResult(result) {
 
                     <div class="assumptions-group">
                         <div class="assumptions-group-title">Portfolio Snapshot</div>
-                        ${portfolio.starting_total_balance !== undefined ? `<div class="assump-row"><span>Starting Balance</span><span>${formatCurrency(portfolio.starting_total_balance)}</span></div>` : ''}
+                        ${portfolio.starting_total_balance !== undefined ? `<div class="assump-row"><span>Starting Balance (Stress Baseline)</span><span>${formatCurrency(portfolio.starting_total_balance)}</span></div>` : ''}
                         ${portfolio.combined_starting_balance !== undefined ? `<div class="assump-row"><span>Combined Balance</span><span>${formatCurrency(portfolio.combined_starting_balance)}</span></div>` : ''}
                         <div class="assump-row"><span>Blended Return</span><span>${Number(portfolio.blended_expected_return_pct || 0).toFixed(2)}%</span></div>
                         <div class="assump-row"><span>Blended Volatility</span><span>${Number(portfolio.blended_volatility_pct || 0).toFixed(2)}%</span></div>
@@ -1655,20 +1793,33 @@ async function recalculateStressTest() {
 
 // Balance form functions
 function showBalanceForm() {
-    // Populate year dropdown if not already populated
+    // Populate comparison-year dropdown from projection horizon
     const yearSelect = document.getElementById('year');
-    if (yearSelect.children.length <= 1) {
-        const currentYear = 2026;
-        const endYear = 2090;
-        for (let year = currentYear; year <= endYear; year++) {
-            const option = document.createElement('option');
-            option.value = year;
-            option.textContent = year;
-            if (year === currentYear) {
-                option.selected = true;
-            }
-            yearSelect.appendChild(option);
+    while (yearSelect.children.length > 1) {
+        yearSelect.removeChild(yearSelect.lastChild());
+    }
+
+    const projectedYears = (currentSingleUserData?.projected || [])
+        .map((point) => Number(point?.year))
+        .filter((year) => Number.isFinite(year) && year > 0);
+
+    const currentYear = new Date().getFullYear();
+    const startYear = projectedYears.length > 0
+        ? Math.max(1900, Math.min(...projectedYears) - 1)
+        : (currentYear - 2);
+    const endYear = projectedYears.length > 0
+        ? Math.max(...projectedYears)
+        : 2090;
+    const defaultYear = Math.min(Math.max(currentYear - 1, startYear), endYear);
+
+    for (let year = startYear; year <= endYear; year++) {
+        const option = document.createElement('option');
+        option.value = year;
+        option.textContent = year;
+        if (year === defaultYear) {
+            option.selected = true;
         }
+        yearSelect.appendChild(option);
     }
     
     document.getElementById('balanceModal').style.display = 'flex';
@@ -1683,7 +1834,8 @@ async function submitBalance(event) {
     event.preventDefault();
     
     const username = document.getElementById('userSelect').value;
-    const year = parseInt(document.getElementById('year').value);
+    const comparisonYear = parseInt(document.getElementById('year').value);
+    const storedYear = comparisonYear + 1;
     const balance401k = parseFloat(document.getElementById('balance401k').value || 0);
     const balanceIRA = parseFloat(document.getElementById('balanceIRA').value || 0);
     const notes = document.getElementById('notes').value;
@@ -1696,13 +1848,13 @@ async function submitBalance(event) {
     try {
         // Submit 401k balance if provided
         if (balance401k > 0) {
-            console.log(`Submitting 401k balance: ${balance401k} for year ${year}`);
+            console.log(`Submitting 401k balance: ${balance401k} for comparison year ${comparisonYear} (stored year ${storedYear})`);
             const response401k = await fetch(`/api/balances/${username}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     account_type: '401k',
-                    year: year,
+                    year: storedYear,
                     balance: balance401k,
                     notes: notes || null,
                 }),
@@ -1720,13 +1872,13 @@ async function submitBalance(event) {
         
         // Submit IRA balance if provided
         if (balanceIRA > 0) {
-            console.log(`Submitting IRA balance: ${balanceIRA} for year ${year}`);
+            console.log(`Submitting IRA balance: ${balanceIRA} for comparison year ${comparisonYear} (stored year ${storedYear})`);
             const responseIRA = await fetch(`/api/balances/${username}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     account_type: 'roth_ira',
-                    year: year,
+                    year: storedYear,
                     balance: balanceIRA,
                     notes: notes || null,
                 }),

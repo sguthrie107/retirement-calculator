@@ -8,6 +8,7 @@ from ..schemas import JointStressTestRecalculateRequest, StressTestEnvelope, Str
 from ..services.monte_carlo import (
     get_latest_joint_stress_test,
     get_latest_stress_test,
+    is_stress_test_snapshot_stale,
     run_joint_stress_test,
     run_stress_test,
     to_response_payload,
@@ -66,6 +67,13 @@ def get_stress_test_result(username: str, db: Session = Depends(get_db)):
         latest = get_latest_stress_test(username, db)
         if not latest:
             return {"result": None}
+        if is_stress_test_snapshot_stale(username, latest, db):
+            latest = run_stress_test(
+                username=username,
+                db=db,
+                simulation_count=latest.simulation_count,
+                random_seed=latest.random_seed,
+            )
         return {"result": to_response_payload(latest, username)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

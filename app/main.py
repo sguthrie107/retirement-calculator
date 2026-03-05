@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .database import init_db
-from .routes import dashboard, projections, balances, stress_test
+from .routes import dashboard, projections, balances, stress_test, holdings
 from .auth import BasicAuthMiddleware
 from .security_headers import SecurityHeadersMiddleware
 
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     # Register routes
     app.include_router(dashboard.router, tags=["dashboard"])
     app.include_router(projections.router, tags=["projections"])
+    app.include_router(holdings.router, tags=["holdings"])
     app.include_router(balances.router, tags=["balances"])
     app.include_router(stress_test.router, tags=["stress-test"])
 
