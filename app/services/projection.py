@@ -55,9 +55,14 @@ def _compute_rental_income_overlay(
     """
     Compute a deterministic rental income overlay for each projected year.
 
-    Mirrors how the Monte Carlo simulation treats rental net cashflow: it is
-    added to the investable contribution each year during accumulation and
-    grows at the same blended portfolio rate as the active 401k phase.
+    Pre-retirement: mirrors how the Monte Carlo treats rental net cashflow —
+    added to investable contributions, compounded at the active 401k phase rate.
+
+    Post-retirement: the rental asset continues to be held and generates income.
+    The balance keeps growing at the conservative (Phase 3) allocation rate,
+    and net rental cashflow continues to compound into the rental portfolio
+    (equivalent to offsetting retirement withdrawals, consistent with the MC
+    which lets rental income reduce the annual portfolio draw).
 
     Returns a dict of {year: cumulative_rental_balance}.
     """
@@ -70,7 +75,6 @@ def _compute_rental_income_overlay(
         return {}
 
     user_age_now = int(user_profile.get("age", 35))
-    retirement_age = int(user_profile.get("retirement_age", 65))
     phases_401k = user_profile.get("401k_phases", {})
 
     rental_balance = 0.0
@@ -85,15 +89,15 @@ def _compute_rental_income_overlay(
         # Advance rental assets and get this year's net cashflow
         cashflow = apply_rental_assets_for_year(asset_states, inflation)
 
-        # Only accumulate rental income during the pre-retirement accumulation phase
-        if age < retirement_age:
-            # Determine the blended portfolio rate for this year's active phase
-            allocation = _pick_active_phase(phases_401k, age)
-            blended_yield, blended_appreciation = _calculate_blended_yield_and_appreciation(allocation)
-            blended_rate = blended_yield + blended_appreciation
+        # Determine the blended portfolio rate for the active phase at this age.
+        # Post-retirement this resolves to the conservative Phase 3 allocation.
+        allocation = _pick_active_phase(phases_401k, age)
+        blended_yield, blended_appreciation = _calculate_blended_yield_and_appreciation(allocation)
+        blended_rate = blended_yield + blended_appreciation
 
-            # Mid-year convention: cashflow earns half a year's return
-            rental_balance = (rental_balance + cashflow / 2.0) * (1.0 + blended_rate) + cashflow / 2.0
+        # Mid-year convention: cashflow earns half a year's return.
+        # Applied both pre- and post-retirement so the rental keeps compounding.
+        rental_balance = (rental_balance + cashflow / 2.0) * (1.0 + blended_rate) + cashflow / 2.0
 
         if year in set(projected_years):
             overlay[year] = round(rental_balance, 2)
