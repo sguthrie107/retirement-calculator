@@ -17,11 +17,15 @@ if (Test-Path "venv\Scripts\Activate.ps1") {
 }
 
 Write-Host ""
-Write-Host "Starting web server on http://localhost:8000" -ForegroundColor Green
+    if (-not $env:HOST) { $env:HOST = "0.0.0.0" }
+    if (-not $env:PORT) { $env:PORT = "8000" }
+
+    Write-Host "Starting web server on http://localhost:$($env:PORT)" -ForegroundColor Green
+    Write-Host "Listening on $($env:HOST):$($env:PORT)" -ForegroundColor Cyan
 Write-Host "Dashboard will open automatically" -ForegroundColor Green
 Write-Host ""
 Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Yellow
 Write-Host ""
 
 # Start the server
-uvicorn app.main:app --reload --port 8000
+    uvicorn app.main:app --reload --host $env:HOST --port $env:PORT
