@@ -17,7 +17,7 @@ if (Test-Path "venv\Scripts\Activate.ps1") {
 }
 
 Write-Host ""
-    if (-not $env:HOST) { $env:HOST = "0.0.0.0" }
+    if (-not $env:HOST) { $env:HOST = "127.0.0.1" }
     if (-not $env:PORT) { $env:PORT = "8000" }
 
     Write-Host "Starting web server on http://localhost:$($env:PORT)" -ForegroundColor Green
