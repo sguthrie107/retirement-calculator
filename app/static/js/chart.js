@@ -449,6 +449,13 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         const parsed = Number(String(value).replace(/,/g, ''));
         return Number.isFinite(parsed) ? parsed : 0;
     };
+    const getAccountBalanceValue = (balances, keys) => {
+        const matchedKey = keys.find((key) => Object.prototype.hasOwnProperty.call(balances, key));
+        if (!matchedKey) {
+            return null;
+        }
+        return toNumber(balances[matchedKey]);
+    };
 
     const firstProjectedBreakdown = data.projected
         .map((d) => d.account_balances || {})
@@ -487,11 +494,11 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     });
     const actual401kData = baseYears.map((year) => {
         const balances = actualAccountBalancesByYear[year] || {};
-        return Number(balances['401k'] ?? balances['k401'] ?? balances['401K'] ?? 0);
+        return getAccountBalanceValue(balances, ['401k', 'k401', '401K']);
     });
     const actualIraData = baseYears.map((year) => {
         const balances = actualAccountBalancesByYear[year] || {};
-        return Number(balances['roth_ira'] ?? balances['ira'] ?? balances['IRA'] ?? balances['rothIra'] ?? 0);
+        return getAccountBalanceValue(balances, ['roth_ira', 'ira', 'IRA', 'rothIra']);
     });
     const actualAboveData = baseYears.map((year, idx) => {
         const actual = actualData[idx];
@@ -888,8 +895,12 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                             const actualTotal = actualDisplaySeries[idx];
                             if (actualTotal !== undefined && actualTotal !== null) {
                                 rows.push('Actual (Total): ' + formatMoney(actualTotal));
-                                rows.push('Actual (401k): ' + formatMoney(actual401kData[idx]));
-                                rows.push('Actual (IRA): ' + formatMoney(actualIraData[idx]));
+                                if (actual401kData[idx] !== undefined && actual401kData[idx] !== null) {
+                                    rows.push('Actual (401k): ' + formatMoney(actual401kData[idx]));
+                                }
+                                if (actualIraData[idx] !== undefined && actualIraData[idx] !== null) {
+                                    rows.push('Actual (IRA): ' + formatMoney(actualIraData[idx]));
+                                }
                             }
 
                             return rows;
@@ -1438,6 +1449,9 @@ function renderStressTestResult(result) {
     const model = result.assumptions?.model || {};
     const successDef = result.assumptions?.success_definition || {};
     const debtPaydown = result.assumptions?.debt_paydown || {};
+    const housingAssets = result.assumptions?.housing_assets || {};
+    const housingAssetList = Array.isArray(housingAssets.assets) ? housingAssets.assets : [];
+    const rentalCashflow = housingAssets.cashflow_treatment || {};
     const debtItem = debtPaydown.debts && debtPaydown.debts.length > 0 ? debtPaydown.debts[0] : null;
     const outcomes = result.assumptions?.outcome_percentiles || {};
     const retirementOutcomes = outcomes.retirement || null;
@@ -1449,6 +1463,50 @@ function renderStressTestResult(result) {
     const lifeP10 = lifeOutcomes ? lifeOutcomes.p10 : result.p10_terminal_balance;
     const lifeP50 = lifeOutcomes ? lifeOutcomes.p50 : result.p50_terminal_balance;
     const lifeP90 = lifeOutcomes ? lifeOutcomes.p90 : result.p90_terminal_balance;
+    const housingAssetRows = housingAssetList.map((asset) => {
+        const participantNames = Array.isArray(asset.participants) && asset.participants.length
+            ? asset.participants.join(' + ')
+            : '—';
+        const homeValue = Number(asset.current_home_value || 0);
+        const loanBalance = Number(asset.loan_balance || 0);
+        const currentEquity = Number(
+            asset.current_equity !== undefined
+                ? asset.current_equity
+                : Math.max(homeValue - loanBalance, 0)
+        );
+        const monthlyPayment = Number(asset.monthly_payment || 0);
+        const monthlyEscrow = Number(asset.monthly_escrow || 0);
+        const convertAfterYears = Number(asset.convert_to_rental_after_years || 0);
+        const monthlyRentPremium = Number(
+            asset.rental_monthly_premium_over_p_and_i
+            ?? asset.monthly_rent_premium
+            ?? 0
+        );
+        const vacancyRate = Number(asset.vacancy_rate || 0);
+        const maintenanceRate = Number(asset.maintenance_rate || 0);
+        const appreciationRate = Number(
+            asset.annual_appreciation_rate
+            ?? asset.conservative_annual_appreciation_rate
+            ?? 0
+        );
+
+        return `
+            <tr>
+                <td><strong>${asset.name || 'Property'}</strong></td>
+                <td>${participantNames}</td>
+                <td>${formatCurrency(homeValue)}</td>
+                <td>${formatCurrency(loanBalance)}</td>
+                <td>${formatCurrency(currentEquity)}</td>
+                <td>${formatCurrency(monthlyPayment)}</td>
+                <td>${formatCurrency(monthlyEscrow)}</td>
+                <td>${convertAfterYears} yrs</td>
+                <td>${formatCurrency(monthlyRentPremium)}</td>
+                <td>${(vacancyRate * 100).toFixed(1)}%</td>
+                <td>${(maintenanceRate * 100).toFixed(1)}%</td>
+                <td>${(appreciationRate * 100).toFixed(1)}%</td>
+                <td>${asset.include_in_individual_analysis ? 'Yes' : 'No'}</td>
+            </tr>`;
+    }).join('');
 
     const assumptionsHtml = `
         <div class="assumptions-section">
@@ -1472,7 +1530,7 @@ function renderStressTestResult(result) {
                     </div>
                 </div>` : ''}
 
-                <div class="assumptions-grid">
+                <div class="assumptions-grid assumptions-grid--stress">
                     <div class="assumptions-group">
                         <div class="assumptions-group-title">Timeline</div>
                         ${horizon.current_age !== undefined ? `<div class="assump-row"><span>Current Age</span><span>${horizon.current_age}</span></div>` : ''}
@@ -1514,7 +1572,7 @@ function renderStressTestResult(result) {
                         <div class="assump-row"><span>Min Real Terminal</span><span>${successDef.min_real_terminal_threshold_pct_of_retirement_balance || 10}% of retirement balance</span></div>
                     </div>
 
-                    <div class="assumptions-group">
+                    <div class="assumptions-group assumptions-group--row2-col2">
                         <div class="assumptions-group-title">Return Model</div>
                         <div class="assump-row"><span>Distribution</span><span class="assump-note">Lognormal w/ Student-t shocks (df=7)</span></div>
                         <div class="assump-row"><span>Downside Skew</span><span>${model.downside_skew_multiplier || 1.15}× amplification</span></div>
@@ -1522,19 +1580,44 @@ function renderStressTestResult(result) {
                         <div class="assump-row"><span>Simulations</span><span>${(result.simulation_count || 10000).toLocaleString()}</span></div>
                     </div>
 
-                    <div class="assumptions-group">
+                    <div class="assumptions-group assumptions-group--row2-col3">
                         <div class="assumptions-group-title">Retirement Outcome Percentiles</div>
                         <div class="assump-row"><span>P10 (Pessimistic)</span><span>${formatCurrency(retirementP10)}</span></div>
                         <div class="assump-row"><span>P50 (Median)</span><span>${formatCurrency(retirementP50)}</span></div>
                         <div class="assump-row"><span>P90 (Optimistic)</span><span>${formatCurrency(retirementP90)}</span></div>
                     </div>
 
-                    <div class="assumptions-group">
+                    <div class="assumptions-group assumptions-group--row2-col4">
                         <div class="assumptions-group-title">Life Outcome Percentiles</div>
                         <div class="assump-row"><span>P10 (Pessimistic)</span><span>${formatCurrency(lifeP10)}</span></div>
                         <div class="assump-row"><span>P50 (Median)</span><span>${formatCurrency(lifeP50)}</span></div>
                         <div class="assump-row"><span>P90 (Optimistic)</span><span>${formatCurrency(lifeP90)}</span></div>
                     </div>
+                </div>
+
+                <div style="height: 12px;"></div>
+                <div class="assumptions-group assumptions-group--housing" style="margin-top: 0 !important;">
+                    <div class="assumptions-group-title">Housing / Rental</div>
+                    <div class="assump-row"><span>Enabled</span><span>${housingAssets.enabled ? 'Yes' : 'No'}</span></div>
+                    <div class="assump-row"><span>Properties Modeled</span><span>${housingAssetList.length}</span></div>
+                    ${housingAssets.counting_rule ? `<div class="assump-row"><span>Count Rule</span><span class="assump-note">${housingAssets.counting_rule}</span></div>` : ''}
+                    <div class="assump-row"><span>Pre-Retirement</span><span class="assump-note">${rentalCashflow.pre_retirement || 'Net rent is added to investable annual contributions before retirement.'}</span></div>
+                    <div class="assump-row"><span>Post-Retirement</span><span class="assump-note">${rentalCashflow.post_retirement || 'Net rent offsets retirement withdrawals before the portfolio is tapped.'}</span></div>
+                    <div class="assump-row"><span>Rent Basis</span><span class="assump-note">${rentalCashflow.rent_basis || 'Monthly rent starts at principal + interest plus rental premium and grows with inflation after conversion.'}</span></div>
+                    <div class="assump-row"><span>Net Cashflow</span><span class="assump-note">${rentalCashflow.net_cashflow_formula || 'Gross rent less vacancy, maintenance, and annual mortgage principal + interest.'}</span></div>
+                    <div class="assump-row"><span>Escrow Treatment</span><span class="assump-note">${rentalCashflow.escrow_treatment || 'Escrow is not included in the Monte Carlo rental cashflow formula.'}</span></div>
+                    <div class="assump-row"><span>Equity Treatment</span><span class="assump-note">${rentalCashflow.equity_treatment || housingAssets.treatment || 'Housing equity is included in terminal net worth.'}</span></div>
+                    ${housingAssetList.length > 0 ? `
+                    <div class="assumptions-table-wrap">
+                        <table class="assumptions-table">
+                            <thead><tr>
+                                <th>Name</th><th>Participants</th><th>Home Value</th><th>Loan Balance</th><th>Equity</th>
+                                <th>P&amp;I /mo</th><th>Escrow /mo</th><th>Convert After</th><th>Rent Premium</th>
+                                <th>Vacancy</th><th>Maint.</th><th>Apprec.</th><th>Shown Individually</th>
+                            </tr></thead>
+                            <tbody>${housingAssetRows}</tbody>
+                        </table>
+                    </div>` : ''}
                 </div>
             </div>
         </div>

@@ -17,6 +17,10 @@ from sqlalchemy.orm import Session
 
 from ..models import Account, ActualBalance, StressTestResult, User
 from .rental_properties import (
+    DEFAULT_CONVERT_TO_RENTAL_AFTER_YEARS,
+    DEFAULT_MAINTENANCE_RATE,
+    DEFAULT_RENT_PREMIUM_OVER_PI,
+    DEFAULT_VACANCY_RATE,
     apply_rental_assets_for_year,
     housing_total_equity,
     initialize_rental_asset_states,
@@ -40,6 +44,7 @@ SOCIAL_SECURITY_FULL_RETIREMENT_AGE = 67
 SOCIAL_SECURITY_MAX_TAXABLE_EARNINGS = 176100.0
 SOCIAL_SECURITY_BEND_POINT_1 = 1174.0
 SOCIAL_SECURITY_BEND_POINT_2 = 7078.0
+DEFAULT_INTRA_PORTFOLIO_CORRELATION = 0.90
 
 BOND_LIKE_TICKERS = {
     "FXNAX",
@@ -55,6 +60,12 @@ TICKER_ALIASES = {
     "VTIAX": "FZILX",
     "VBTLX": "FXNAX",
 }
+
+BOGLEHEAD_3_FUND_ALLOCATION = (
+    ("FXAIX", 0.60),
+    ("FZILX", 0.20),
+    ("FXNAX", 0.20),
+)
 
 # Rating thresholds follow a planning-oriented rubric with conservative cutoffs.
 RATING_BANDS = [
@@ -160,6 +171,78 @@ def _load_household_assets_for_users(usernames: list[str]) -> list[dict[str, Any
             applicable.append(asset)
 
     return applicable
+
+
+def _build_housing_assets_assumption(asset_configs: list[dict[str, Any]], *, joint: bool) -> dict[str, Any]:
+    serialized_assets: list[dict[str, Any]] = []
+
+    for asset in asset_configs:
+        current_home_value = float(asset.get("current_home_value", 0.0))
+        loan_balance = float(asset.get("loan_balance", 0.0))
+        serialized_assets.append(
+            {
+                "name": asset.get("name") or "Property",
+                "asset_type": asset.get("asset_type", "residential_real_estate"),
+                "participants": list(asset.get("participants", [])),
+                "current_home_value": round(current_home_value, 2),
+                "loan_balance": round(loan_balance, 2),
+                "current_equity": round(max(current_home_value - loan_balance, 0.0), 2),
+                "annual_interest_rate": float(asset.get("annual_interest_rate", 0.0)),
+                "monthly_payment": round(float(asset.get("monthly_payment", 0.0)), 2),
+                "monthly_escrow": round(float(asset.get("monthly_escrow", 0.0)), 2),
+                "annual_appreciation_rate": float(
+                    asset.get("conservative_annual_appreciation_rate", 0.0)
+                ),
+                "convert_to_rental_after_years": int(
+                    asset.get(
+                        "convert_to_rental_after_years",
+                        DEFAULT_CONVERT_TO_RENTAL_AFTER_YEARS,
+                    )
+                ),
+                "rental_monthly_premium_over_p_and_i": round(
+                    float(
+                        asset.get(
+                            "rental_monthly_premium_over_p_and_i",
+                            DEFAULT_RENT_PREMIUM_OVER_PI,
+                        )
+                    ),
+                    2,
+                ),
+                "vacancy_rate": float(asset.get("vacancy_rate", DEFAULT_VACANCY_RATE)),
+                "maintenance_rate": float(
+                    asset.get("maintenance_rate", DEFAULT_MAINTENANCE_RATE)
+                ),
+                "include_in_individual_analysis": bool(
+                    asset.get("include_in_individual_analysis", False)
+                ),
+            }
+        )
+
+    return {
+        "enabled": len(serialized_assets) > 0,
+        "assets": serialized_assets,
+        "counting_rule": (
+            "Counted once for household projections"
+            if joint
+            else "Included for participant users when individual analysis is enabled"
+        ),
+        "treatment": (
+            "Residential equity is included in terminal net worth; rental conversion cashflow is modeled annually."
+        ),
+        "ownership_treatment": (
+            "Individual analysis uses pro-rata ownership share for multi-participant assets."
+            if not joint
+            else "Household analysis models full shared-asset economics once."
+        ),
+        "cashflow_treatment": {
+            "pre_retirement": "Net rent is added to investable annual contributions before retirement.",
+            "post_retirement": "Net rent reduces portfolio withdrawals after retirement.",
+            "rent_basis": "Monthly rent starts at P&I payment plus configured rental premium and then grows with inflation after conversion.",
+            "net_cashflow_formula": "Net annual rent = gross rent - vacancy - maintenance - annual mortgage principal & interest.",
+            "escrow_treatment": "Escrow is tracked in config but excluded from the Monte Carlo rental cashflow formula.",
+            "equity_treatment": "Remaining housing equity is included in terminal assets / net worth.",
+        },
+    }
 
 
 def _load_household_retirement_spending_for_users(usernames: list[str]) -> dict[str, Any] | None:
@@ -313,6 +396,46 @@ def _account_phase_moments(
     ira_mu, ira_sigma = _allocation_moments(ira_allocation, fund_moments)
 
     return (k401_mu, k401_sigma), (ira_mu, ira_sigma)
+
+
+def _boglehead_income_moments(fund_moments: dict[str, AssetMoments]) -> tuple[float, float]:
+    weighted_mean = 0.0
+    weighted_variance = 0.0
+
+    total_weight = sum(weight for _, weight in BOGLEHEAD_3_FUND_ALLOCATION)
+    if total_weight <= 0:
+        return 0.06, 0.12
+
+    for ticker, raw_weight in BOGLEHEAD_3_FUND_ALLOCATION:
+        weight = raw_weight / total_weight
+        moments = fund_moments.get(ticker, AssetMoments(mean_return=0.06, volatility=0.12))
+        weighted_mean += weight * moments.mean_return
+        weighted_variance += (weight * moments.volatility) ** 2
+
+    return weighted_mean, math.sqrt(max(weighted_variance, 1e-8))
+
+
+def _blended_portfolio_volatility(
+    weighted_vol_components: list[tuple[float, float]],
+    correlation: float = DEFAULT_INTRA_PORTFOLIO_CORRELATION,
+) -> float:
+    """Estimate blended volatility from weighted components with a constant pairwise correlation."""
+    if not weighted_vol_components:
+        return 0.0
+
+    rho = max(0.0, min(1.0, float(correlation)))
+    sum_diag = 0.0
+    sum_cross = 0.0
+
+    for i, (weight_i, sigma_i) in enumerate(weighted_vol_components):
+        weighted_sigma_i = max(weight_i, 0.0) * max(sigma_i, 0.0)
+        sum_diag += weighted_sigma_i * weighted_sigma_i
+        for j in range(i + 1, len(weighted_vol_components)):
+            weight_j, sigma_j = weighted_vol_components[j]
+            weighted_sigma_j = max(weight_j, 0.0) * max(sigma_j, 0.0)
+            sum_cross += 2.0 * rho * weighted_sigma_i * weighted_sigma_j
+
+    return math.sqrt(max(sum_diag + sum_cross, 0.0))
 
 
 def _latest_actual_balance_for_account(db: Session, user_id: int, account_type: str) -> float | None:
@@ -526,10 +649,17 @@ def run_stress_test(
     account_weight_401k = start_401k / start_total_balance if start_total_balance > 0 else 0.5
     account_weight_ira = 1.0 - account_weight_401k
     blended_mean = (account_weight_401k * mu_401k_now) + (account_weight_ira * mu_ira_now)
-    blended_vol = math.sqrt(((account_weight_401k * sigma_401k_now) ** 2) + ((account_weight_ira * sigma_ira_now) ** 2))
+    blended_vol = _blended_portfolio_volatility(
+        [
+            (account_weight_401k, sigma_401k_now),
+            (account_weight_ira, sigma_ira_now),
+        ]
+    )
     target_volatility = DEFAULT_TARGET_VOLATILITY_PCT / 100.0
     volatility_uplift = max(1.0, target_volatility / max(blended_vol, 1e-8))
     effective_blended_vol = blended_vol * volatility_uplift
+    income_mu, income_sigma_base = _boglehead_income_moments(fund_moments)
+    income_sigma = income_sigma_base * volatility_uplift
 
     terminal_balances: list[float] = []
     retirement_portfolio_balances: list[float] = []
@@ -546,6 +676,7 @@ def run_stress_test(
         salary = base_salary
         bal_401k = start_401k
         bal_ira = start_ira
+        bal_income = 0.0
         housing_asset_states = initialize_rental_asset_states(household_assets)
 
         # GARCH-like regime state for volatility clustering.
@@ -557,7 +688,7 @@ def run_stress_test(
         failed = False
 
         for year_idx in range(years_to_simulate):
-            total_balance = max(bal_401k + bal_ira, 0.0)
+            total_balance = max(bal_401k + bal_ira + bal_income, 0.0)
             rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
             housing_equity = housing_total_equity(housing_asset_states)
             (mu_401k, sigma_401k), (mu_ira, sigma_ira) = _account_phase_moments(
@@ -610,38 +741,48 @@ def run_stress_test(
                 # Positive rental income offsets retirement draw; negative net rental cashflow increases it.
                 withdrawal = max(annual_withdrawal - social_security_income - rental_net_cashflow, 0.0)
 
-            contribution_401k = contribution
             contribution_ira = _annual_ira_contribution(user_profile, year_idx, inflation) if age < retirement_age else 0.0
+            contribution_income = contribution + contribution_ira
 
             if total_balance > 0:
                 share_401k = bal_401k / total_balance
                 share_ira = bal_ira / total_balance
+                share_income = bal_income / total_balance
             else:
                 share_401k = account_weight_401k
                 share_ira = account_weight_ira
+                share_income = 0.0
 
             withdrawal_401k = withdrawal * share_401k
             withdrawal_ira = withdrawal * share_ira
+            withdrawal_income = withdrawal * share_income
+
+            contribution_401k = 0.0
+            contribution_ira = 0.0
 
             # Mid-period cashflow convention avoids overstating or understating timing impacts.
             effective_401k = max(bal_401k + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
             effective_ira = max(bal_ira + 0.5 * (contribution_ira - withdrawal_ira), 0.0)
+            effective_income = max(bal_income + 0.5 * (contribution_income - withdrawal_income), 0.0)
 
             r_401k = _draw_annual_return(mu_401k, sigma_401k, normalized_shock)
             r_ira = _draw_annual_return(mu_ira, sigma_ira, normalized_shock)
+            r_income = _draw_annual_return(income_mu, income_sigma, normalized_shock)
 
             bal_401k = max((effective_401k * (1.0 + r_401k)) + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
             bal_ira = max((effective_ira * (1.0 + r_ira)) + 0.5 * (contribution_ira - withdrawal_ira), 0.0)
+            bal_income = max((effective_income * (1.0 + r_income)) + 0.5 * (contribution_income - withdrawal_income), 0.0)
 
-            if (bal_401k + bal_ira) <= 1.0:
+            if (bal_401k + bal_ira + bal_income) <= 1.0:
                 failed = True
                 bal_401k = 0.0
                 bal_ira = 0.0
+                bal_income = 0.0
                 break
 
             age += 1
 
-        terminal_portfolio_balance = bal_401k + bal_ira
+        terminal_portfolio_balance = bal_401k + bal_ira + bal_income
         terminal_balance = terminal_portfolio_balance + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
         terminal_portfolio_balances.append(terminal_portfolio_balance)
@@ -694,6 +835,7 @@ def run_stress_test(
             "withdrawal_rate": withdrawal_pct,
             "inflation_rate": inflation,
             "social_security_offsets_withdrawals": True,
+            "income_investment_strategy": "All modeled income cashflows are invested to a Boglehead 3-fund portfolio (FXAIX/FZILX/FXNAX).",
         },
         "social_security": {
             "enabled": True,
@@ -706,12 +848,9 @@ def run_stress_test(
             "retirement_rebalance_target_bonds_pct": int(RETIREMENT_BOND_TARGET_PCT * 100),
             "dividends_reinvested": True,
             "bond_and_equity_volatility_modeled_separately": True,
+            "intra_portfolio_correlation_assumption": DEFAULT_INTRA_PORTFOLIO_CORRELATION,
         },
-        "housing_assets": {
-            "enabled": len(household_assets) > 0,
-            "assets": household_assets,
-            "treatment": "Residential real estate equity included in terminal assets; rental conversion cashflow modeled after configured conversion year",
-        },
+        "housing_assets": _build_housing_assets_assumption(household_assets, joint=False),
         "success_definition": {
             "no_depletion_before_life_expectancy": True,
             "min_real_terminal_threshold_pct_of_retirement_balance": DEFAULT_SUCCESS_THRESHOLD_PCT,
@@ -947,7 +1086,7 @@ def run_joint_stress_test(
 
     # Blended portfolio metrics (for reporting)
     blended_mean = 0.0
-    blended_variance = 0.0
+    blended_vol_components: list[tuple[float, float]] = []
     for i, profile in enumerate(profiles):
         (mu_401k, sigma_401k), (mu_ira, sigma_ira) = _account_phase_moments(
             profile,
@@ -955,13 +1094,22 @@ def run_joint_stress_test(
             fund_moments,
             retirement_ages[i],
         )
-        share = (start_bals[i][0] + start_bals[i][1]) / max(combined_start_total, 1.0)
-        blended_mean += share * (mu_401k * 0.6 + mu_ira * 0.4)
-        blended_variance += (share * (sigma_401k * 0.6 + sigma_ira * 0.4)) ** 2
-    blended_vol = math.sqrt(max(blended_variance, 1e-8))
+        member_401k = max(start_bals[i][0], 0.0)
+        member_ira = max(start_bals[i][1], 0.0)
+        component_weights = [
+            member_401k / max(combined_start_total, 1.0),
+            member_ira / max(combined_start_total, 1.0),
+        ]
+        blended_mean += (component_weights[0] * mu_401k) + (component_weights[1] * mu_ira)
+        blended_vol_components.append((component_weights[0], sigma_401k))
+        blended_vol_components.append((component_weights[1], sigma_ira))
+
+    blended_vol = _blended_portfolio_volatility(blended_vol_components)
     target_volatility = DEFAULT_TARGET_VOLATILITY_PCT / 100.0
     volatility_uplift = max(1.0, target_volatility / max(blended_vol, 1e-8))
     effective_blended_vol = blended_vol * volatility_uplift
+    income_mu, income_sigma_base = _boglehead_income_moments(fund_moments)
+    income_sigma = income_sigma_base * volatility_uplift
 
     terminal_balances: list[float] = []
     retirement_portfolio_balances: list[float] = []
@@ -991,6 +1139,7 @@ def run_joint_stress_test(
 
         bals_401k = [sb[0] for sb in start_bals]
         bals_ira = [sb[1] for sb in start_bals]
+        bals_income = [0.0 for _ in profiles]
         housing_asset_states = initialize_rental_asset_states(household_assets)
 
         debt_states: list[dict[str, float]] = []
@@ -1010,11 +1159,12 @@ def run_joint_stress_test(
         prev_shock = 0.0
 
         annual_withdrawal = 0.0
+        annual_withdrawal_rule_based = 0.0
         retirement_start_balance: float | None = None
         failed = False
 
         for _year_idx in range(years_to_simulate):
-            total_household = max(sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles))), 0.0)
+            total_household = max(sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles))), 0.0)
             rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
             housing_equity = housing_total_equity(housing_asset_states)
 
@@ -1041,15 +1191,19 @@ def run_joint_stress_test(
                 if retirement_start_balance is None:
                     retirement_start_balance = total_household + housing_equity
                     retirement_portfolio_balances.append(total_household)
-                    annual_withdrawal = total_household * withdrawal_pct
+                    annual_withdrawal_rule_based = total_household * withdrawal_pct
                 else:
-                    annual_withdrawal *= (1.0 + inflation)
+                    annual_withdrawal_rule_based *= (1.0 + inflation)
 
-                if enforce_retirement_spending_floor and base_retirement_spending_annual > 0.0:
+                annual_withdrawal = annual_withdrawal_rule_based
+                if base_retirement_spending_annual > 0.0:
                     simulation_year = current_year + _year_idx
                     years_since_spending_base = max(0, simulation_year - retirement_spending_base_year)
-                    annual_spending_floor = base_retirement_spending_annual * ((1.0 + inflation) ** years_since_spending_base)
-                    annual_withdrawal = max(annual_withdrawal, annual_spending_floor)
+                    annual_spending_goal = base_retirement_spending_annual * ((1.0 + inflation) ** years_since_spending_base)
+                    if enforce_retirement_spending_floor:
+                        annual_withdrawal = max(annual_withdrawal, annual_spending_goal)
+                    else:
+                        annual_withdrawal = annual_spending_goal
 
             household_social_security_income = 0.0
             for i in range(len(profiles)):
@@ -1087,13 +1241,16 @@ def run_joint_stress_test(
                     planned_ira_contributions[i] = ira_annual_contributions[i] * ((1.0 + inflation) ** years_since_start)
 
             if not all_members_retired and abs(rental_net_cashflow) > 0.0:
-                total_weight = sum(max(bals_401k[i] + bals_ira[i], 0.0) for i in range(len(profiles)))
+                total_weight = sum(max(bals_401k[i] + bals_ira[i] + bals_income[i], 0.0) for i in range(len(profiles)))
                 for i in range(len(profiles)):
                     if total_weight > 0:
-                        member_weight = max(bals_401k[i] + bals_ira[i], 0.0) / total_weight
+                        member_weight = max(bals_401k[i] + bals_ira[i] + bals_income[i], 0.0) / total_weight
                     else:
                         member_weight = 1.0 / len(profiles)
                     planned_contributions[i] += rental_net_cashflow * member_weight
+
+            for i in range(len(profiles)):
+                planned_contributions[i] += planned_ira_contributions[i]
 
             total_planned = sum(planned_contributions)
             if apply_debt_contribution_reduction and total_planned > 0 and total_debt_payment > 0:
@@ -1112,41 +1269,52 @@ def run_joint_stress_test(
                 sigma_ira *= volatility_uplift
 
                 contrib_i = planned_contributions[i]
-                contrib_ira_i = planned_ira_contributions[i]
 
                 # Allocate household withdrawal proportionally to this member's share
-                member_total = bals_401k[i] + bals_ira[i]
+                member_total = bals_401k[i] + bals_ira[i] + bals_income[i]
                 member_share = member_total / max(total_household, 1.0)
                 withdrawal_i = annual_portfolio_withdrawal * member_share if all_members_retired else 0.0
 
                 # Sub-allocate withdrawal across 401k / IRA within member
-                k_share = bals_401k[i] / max(member_total, 1.0)
-                ira_share = 1.0 - k_share
+                if member_total > 0:
+                    k_share = bals_401k[i] / member_total
+                    ira_share = bals_ira[i] / member_total
+                    income_share = bals_income[i] / member_total
+                else:
+                    k_share = 0.5
+                    ira_share = 0.5
+                    income_share = 0.0
 
-                contrib_401k = contrib_i
-                contrib_ira = contrib_ira_i
+                contrib_401k = 0.0
+                contrib_ira = 0.0
+                contrib_income = contrib_i
                 w_401k = withdrawal_i * k_share
                 w_ira = withdrawal_i * ira_share
+                w_income = withdrawal_i * income_share
 
                 eff_401k = max(bals_401k[i] + 0.5 * (contrib_401k - w_401k), 0.0)
                 eff_ira = max(bals_ira[i] + 0.5 * (contrib_ira - w_ira), 0.0)
+                eff_income = max(bals_income[i] + 0.5 * (contrib_income - w_income), 0.0)
 
                 r_401k = _draw_annual_return(mu_401k, sigma_401k, normalized_shock)
                 r_ira = _draw_annual_return(mu_ira, sigma_ira, normalized_shock)
+                r_income = _draw_annual_return(income_mu, income_sigma, normalized_shock)
 
                 bals_401k[i] = max((eff_401k * (1.0 + r_401k)) + 0.5 * (contrib_401k - w_401k), 0.0)
                 bals_ira[i] = max((eff_ira * (1.0 + r_ira)) + 0.5 * (contrib_ira - w_ira), 0.0)
+                bals_income[i] = max((eff_income * (1.0 + r_income)) + 0.5 * (contrib_income - w_income), 0.0)
 
-            new_total = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles)))
+            new_total = sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles)))
             if new_total <= 1.0:
                 failed = True
                 bals_401k = [0.0] * len(profiles)
                 bals_ira = [0.0] * len(profiles)
+                bals_income = [0.0] * len(profiles)
                 break
 
             ages = [a + 1 for a in ages]
 
-        terminal_portfolio_balance = sum(bals_401k[i] + bals_ira[i] for i in range(len(profiles)))
+        terminal_portfolio_balance = sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles)))
         terminal_balance = terminal_portfolio_balance + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
         terminal_portfolio_balances.append(terminal_portfolio_balance)
@@ -1218,7 +1386,11 @@ def run_joint_stress_test(
             "inflation_rate": inflation,
             "ira_contributions_included": True,
             "social_security_offsets_withdrawals": True,
+            "income_investment_strategy": "All modeled income cashflows are invested to a Boglehead 3-fund portfolio (FXAIX/FZILX/FXNAX).",
             "retirement_spending_floor_enabled": enforce_retirement_spending_floor,
+            "retirement_spending_goal_mode": (
+                "floor" if enforce_retirement_spending_floor else "target"
+            ) if base_retirement_spending_annual > 0.0 else "withdrawal_rate_only",
             "retirement_spending_floor_annual_2026": round(base_retirement_spending_annual, 2),
         },
         "social_security": {
@@ -1244,12 +1416,7 @@ def run_joint_stress_test(
                 "post_payoff_contribution_cap_pct": round(POST_DEBT_CONTRIBUTION_CAP_PCT * 100.0, 2),
             },
         },
-        "housing_assets": {
-            "enabled": len(household_assets) > 0,
-            "assets": household_assets,
-            "counting_rule": "Counted once for household projections",
-            "treatment": "Residential equity included in terminal assets and rental conversion cashflow modeled annually",
-        },
+        "housing_assets": _build_housing_assets_assumption(household_assets, joint=True),
         "retirement_spending_goals": {
             "enabled": household_retirement_spending is not None,
             "config": household_retirement_spending,
@@ -1259,6 +1426,7 @@ def run_joint_stress_test(
             "retirement_rebalance_target_bonds_pct": int(RETIREMENT_BOND_TARGET_PCT * 100),
             "dividends_reinvested": True,
             "bond_and_equity_volatility_modeled_separately": True,
+            "intra_portfolio_correlation_assumption": DEFAULT_INTRA_PORTFOLIO_CORRELATION,
         },
         "success_definition": {
             "no_depletion_before_life_expectancy": True,

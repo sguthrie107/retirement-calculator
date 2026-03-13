@@ -1104,13 +1104,42 @@ html {
 }
 
 .assumptions-panel {
+    --assumptions-gap: 0.75rem;
     margin-top: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--assumptions-gap);
+}
+
+.assumptions-panel > * + * {
+    margin-top: var(--assumptions-gap);
 }
 
 .assumptions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.75rem;
+    gap: var(--assumptions-gap);
+}
+
+@media (min-width: 1440px) {
+    .assumptions-grid--stress {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .assumptions-grid--stress .assumptions-group--row2-col2 {
+        grid-row: 2;
+        grid-column: 2;
+    }
+
+    .assumptions-grid--stress .assumptions-group--row2-col3 {
+        grid-row: 2;
+        grid-column: 3;
+    }
+
+    .assumptions-grid--stress .assumptions-group--row2-col4 {
+        grid-row: 2;
+        grid-column: 4;
+    }
 }
 
 .assumptions-group {

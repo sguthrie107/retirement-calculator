@@ -29,14 +29,29 @@ def load_household_assets_for_user(username: str) -> list[dict[str, Any]]:
 
     applicable: list[dict[str, Any]] = []
     for asset in assets:
-        participants = set(asset.get("participants", []))
-        if username not in participants:
+        participants = [str(name) for name in asset.get("participants", [])]
+        participant_set = set(participants)
+        if username not in participant_set:
             continue
         if not bool(asset.get("include_in_individual_analysis", False)):
             continue
         if str(asset.get("asset_type", "")).lower() != "residential_real_estate":
             continue
-        applicable.append(asset)
+
+        ownership_share = 1.0 / max(len(participants), 1)
+        prorated_asset = dict(asset)
+        prorated_asset["analysis_ownership_share"] = ownership_share
+
+        for numeric_key in (
+            "current_home_value",
+            "loan_balance",
+            "monthly_payment",
+            "monthly_escrow",
+            "rental_monthly_premium_over_p_and_i",
+        ):
+            prorated_asset[numeric_key] = float(prorated_asset.get(numeric_key, 0.0)) * ownership_share
+
+        applicable.append(prorated_asset)
 
     return applicable
 
