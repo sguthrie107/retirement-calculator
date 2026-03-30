@@ -10,5 +10,11 @@ sqlalchemy>=2.0.0
 jinja2>=3.1.0
 python-multipart>=0.0.6
 
+# Request rate limiting
+slowapi>=0.1.9
+
+# In-memory cache with TTL support (used for quote cache in holdings service)
+cachetools>=5.3.0
+
 # PostgreSQL driver (used in production; SQLite used locally by default)
 psycopg2-binary>=2.9.0

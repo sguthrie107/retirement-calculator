@@ -16,3 +16,8 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["lib"]
+
+[tool.pytest.ini_options]
+# Make the project root importable so `lib` and `app` can be imported
+# without a manual sys.path.insert or requiring `pip install -e .`.
+pythonpath = ["."]

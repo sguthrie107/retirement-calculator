@@ -1,15 +1,20 @@
 """Core data loading utilities for retirement calculator."""
 
+import functools
 import json
 from typing import Any, Dict, List
 
 from .constants import DATA_DIR, DATA_FILES
 
 
+@functools.lru_cache(maxsize=16)
 def load_json_file(filename: str) -> Dict[str, Any]:
     """
     Load and parse a JSON file from the data directory.
-    
+
+    Results are cached for the lifetime of the process; restart the server
+    to reload changed data files.
+
     Args:
         filename: Name of the JSON file (e.g., 'stocks.json')
         
