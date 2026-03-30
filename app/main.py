@@ -5,10 +5,14 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
 from .database import init_db
 from .routes import dashboard, projections, balances, stress_test, holdings
 from .auth import BasicAuthMiddleware
 from .security_headers import SecurityHeadersMiddleware
+from .limiter import limiter
 
 # Get absolute paths
 BASE_DIR = Path(__file__).parent.parent
@@ -34,6 +38,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     
+    # Attach rate-limiter state and exception handler
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     # Middleware (outermost first — security headers wrap auth wrap routes)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(BasicAuthMiddleware)

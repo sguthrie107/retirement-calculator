@@ -2,9 +2,13 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
+# Supported account types.  Add new types here and in the models.py
+# CheckConstraint so both layers stay in sync.
+ACCOUNT_TYPES = Literal["401k", "roth_ira", "403b", "hsa", "taxable", "traditional_ira"]
+
 
 class BalanceCreate(BaseModel):
-    account_type: Literal["401k", "roth_ira"]
+    account_type: ACCOUNT_TYPES
     year: int = Field(ge=2000, le=2100)
     balance: float = Field(ge=0)
     notes: Optional[str] = None

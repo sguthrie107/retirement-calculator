@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models."""
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, UniqueConstraint, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, UniqueConstraint, CheckConstraint, JSON
 from sqlalchemy.orm import relationship, DeclarativeBase
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class Base(DeclarativeBase):
@@ -13,7 +13,7 @@ class User(Base):
     
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
-    created_at = Column(String, nullable=False, default=lambda: datetime.utcnow().isoformat())
+    created_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
     
     accounts = relationship("Account", back_populates="user", cascade="all, delete-orphan")
     stress_test_results = relationship("StressTestResult", back_populates="user", cascade="all, delete-orphan")
@@ -32,7 +32,10 @@ class Account(Base):
     
     __table_args__ = (
         UniqueConstraint("user_id", "account_type", name="uq_user_account_type"),
-        CheckConstraint("account_type IN ('401k', 'roth_ira')", name="ck_account_type"),
+        CheckConstraint(
+            "account_type IN ('401k', 'roth_ira', '403b', 'hsa', 'taxable', 'traditional_ira')",
+            name="ck_account_type",
+        ),
     )
 
 
@@ -44,7 +47,7 @@ class ActualBalance(Base):
     year = Column(Integer, nullable=False)
     balance = Column(Float, nullable=False)
     notes = Column(String)
-    recorded_at = Column(String, nullable=False, default=lambda: datetime.utcnow().isoformat())
+    recorded_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
     
     account = relationship("Account", back_populates="actual_balances")
     
@@ -59,7 +62,7 @@ class StressTestResult(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(String, nullable=False, default=lambda: datetime.utcnow().isoformat())
+    created_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())
     simulation_count = Column(Integer, nullable=False)
     random_seed = Column(Integer, nullable=True)
     mean_return_pct = Column(Float, nullable=False)
@@ -74,7 +77,7 @@ class StressTestResult(Base):
     p10_terminal_balance = Column(Float, nullable=False)
     p50_terminal_balance = Column(Float, nullable=False)
     p90_terminal_balance = Column(Float, nullable=False)
-    assumptions_json = Column(String, nullable=False)
+    assumptions_json = Column(JSON, nullable=False)
 
     user = relationship("User", back_populates="stress_test_results")
 
