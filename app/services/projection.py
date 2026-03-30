@@ -1,36 +1,15 @@
 """Projection service - wraps existing retirement calculator engine."""
 import pandas as pd
-import sys
-import json
-from pathlib import Path
-
-# Add parent directory to path to import lib modules
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from lib.plan_by_age import retirement_401k_full_plan, _calculate_blended_yield_and_appreciation
 from lib.ira import retirement_ira_full_plan
 from lib.display_utils import merge_projections
+from lib.calculator_utils import load_user_profile as _load_user_profile
 from app.services.rental_properties import (
     load_household_assets_for_user,
     initialize_rental_asset_states,
     apply_rental_assets_for_year,
 )
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def _load_user_profile(username: str) -> dict:
-    users_path = _project_root() / "data" / "users.json"
-    with open(users_path, "r", encoding="utf-8") as f:
-        users_data = json.load(f)
-
-    for user in users_data.get("users", []):
-        if user.get("name") == username:
-            return user
-
-    raise ValueError(f"User '{username}' not found in users.json")
 
 
 def _pick_active_phase(phases: dict, age: int) -> dict | None:

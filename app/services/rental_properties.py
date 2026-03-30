@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
+
+from lib.calculator_utils import load_users_data
 
 
 DEFAULT_CONVERT_TO_RENTAL_AFTER_YEARS = 5
@@ -13,18 +13,8 @@ DEFAULT_VACANCY_RATE = 0.06
 DEFAULT_MAINTENANCE_RATE = 0.08
 
 
-def project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def load_users_file() -> dict[str, Any]:
-    users_path = project_root() / "data" / "users.json"
-    with open(users_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 def load_household_assets_for_user(username: str) -> list[dict[str, Any]]:
-    users_data = load_users_file()
+    users_data = load_users_data()
     assets = users_data.get("household_assets", [])
 
     applicable: list[dict[str, Any]] = []

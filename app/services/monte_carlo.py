@@ -6,15 +6,15 @@ existing baseline engine unchanged.
 
 from __future__ import annotations
 
-import json
 import math
 import random
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from lib.calculator_utils import load_users_data, load_user_profile as _load_user_profile
+from lib.data_loader import load_json_file
 from ..models import Account, ActualBalance, StressTestResult, User
 from .rental_properties import (
     DEFAULT_CONVERT_TO_RENTAL_AFTER_YEARS,
@@ -25,7 +25,6 @@ from .rental_properties import (
     housing_total_equity,
     initialize_rental_asset_states,
     load_household_assets_for_user,
-    load_users_file,
 )
 
 
@@ -113,27 +112,8 @@ class AssetMoments:
     volatility: float
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _load_user_profile(username: str) -> dict[str, Any]:
-    users_path = _project_root() / "data" / "users.json"
-    users_data = _load_json(users_path)
-    for user in users_data.get("users", []):
-        if user.get("name") == username:
-            return user
-    raise ValueError(f"User '{username}' not found in users.json")
-
-
 def _load_household_debts_for_users(usernames: list[str]) -> list[dict[str, Any]]:
-    users_path = _project_root() / "data" / "users.json"
-    users_data = _load_json(users_path)
+    users_data = load_users_data()
     debts = users_data.get("household_debts", [])
     target = set(usernames)
 
@@ -149,7 +129,7 @@ def _load_household_debts_for_users(usernames: list[str]) -> list[dict[str, Any]
 
 
 def _load_household_assets_for_users(usernames: list[str]) -> list[dict[str, Any]]:
-    users_data = load_users_file()
+    users_data = load_users_data()
     assets = users_data.get("household_assets", [])
     target = set(usernames)
 
@@ -246,8 +226,7 @@ def _build_housing_assets_assumption(asset_configs: list[dict[str, Any]], *, joi
 
 
 def _load_household_retirement_spending_for_users(usernames: list[str]) -> dict[str, Any] | None:
-    users_path = _project_root() / "data" / "users.json"
-    users_data = _load_json(users_path)
+    users_data = load_users_data()
     spending_configs = users_data.get("household_retirement_spending", [])
     target = set(usernames)
 
@@ -260,8 +239,8 @@ def _load_household_retirement_spending_for_users(usernames: list[str]) -> dict[
 
 
 def _build_fund_moments() -> dict[str, AssetMoments]:
-    stocks = _load_json(_project_root() / "data" / "stocks.json").get("funds", [])
-    bonds = _load_json(_project_root() / "data" / "bonds.json").get("funds", [])
+    stocks = load_json_file("stocks.json").get("funds", [])
+    bonds = load_json_file("bonds.json").get("funds", [])
 
     moments: dict[str, AssetMoments] = {}
     for fund in stocks + bonds:
@@ -908,7 +887,7 @@ def run_stress_test(
         p10_terminal_balance=round(percentile(terminal_balances, 0.10), 2),
         p50_terminal_balance=round(percentile(terminal_balances, 0.50), 2),
         p90_terminal_balance=round(percentile(terminal_balances, 0.90), 2),
-        assumptions_json=json.dumps(assumptions),
+        assumptions_json=assumptions,
     )
 
     db.add(result)
@@ -950,7 +929,7 @@ def is_stress_test_snapshot_stale(
     current_total = round(current_401k + current_ira, 2)
 
     try:
-        assumptions = json.loads(stress_result.assumptions_json or "{}")
+        assumptions = stress_result.assumptions_json or {}
     except Exception:
         return True
 
@@ -968,7 +947,7 @@ def is_stress_test_snapshot_stale(
 
 
 def to_response_payload(stress_result: StressTestResult, username: str) -> dict[str, Any]:
-    assumptions = json.loads(stress_result.assumptions_json)
+    assumptions = stress_result.assumptions_json
     return {
         "id": stress_result.id,
         "username": username,
@@ -1492,7 +1471,7 @@ def run_joint_stress_test(
         p10_terminal_balance=round(percentile(terminal_balances, 0.10), 2),
         p50_terminal_balance=round(percentile(terminal_balances, 0.50), 2),
         p90_terminal_balance=round(percentile(terminal_balances, 0.90), 2),
-        assumptions_json=json.dumps(assumptions),
+        assumptions_json=assumptions,
     )
 
     db.add(result)
