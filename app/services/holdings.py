@@ -1,31 +1,19 @@
 """Live holdings service for dashboard MVP."""
 from __future__ import annotations
 
-from datetime import date, datetime
-from pathlib import Path
+from datetime import date, datetime, timezone
 import json
 import urllib.parse
 import urllib.request
 
+from cachetools import TTLCache
+
+from lib.calculator_utils import load_user_profile as _load_user_profile
+
 
 DEFAULT_AGE_REFERENCE_YEAR = 2026
-_QUOTE_CACHE: dict[tuple[str, str], dict] = {}
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def _load_user_profile(username: str) -> dict:
-    users_path = _project_root() / "data" / "users.json"
-    with open(users_path, "r", encoding="utf-8") as handle:
-        users_data = json.load(handle)
-
-    for user in users_data.get("users", []):
-        if user.get("name") == username:
-            return user
-
-    raise ValueError(f"User '{username}' not found in users.json")
+# Cache up to 256 ticker/date combinations; each entry lives for 30 minutes.
+_QUOTE_CACHE: TTLCache = TTLCache(maxsize=256, ttl=1800)
 
 
 def resolve_current_year(as_of: date | None = None) -> int:
@@ -84,7 +72,13 @@ def _fetch_quote_from_yahoo(ticker: str) -> dict:
     price = meta.get("regularMarketPrice")
     if price is None and closes:
         price = closes[-1]
-    previous_close = meta.get("chartPreviousClose") or meta.get("previousClose")
+    # Use regularMarketPreviousClose (yesterday's actual close) for an accurate
+    # 24-hour day change.  chartPreviousClose reflects the close at the START of
+    # the chart range (5 days ago here), which would produce a cumulative figure.
+    previous_close = (
+        meta.get("regularMarketPreviousClose")
+        or meta.get("previousClose")
+    )
     if previous_close is None and len(closes) >= 2:
         previous_close = closes[-2]
 
@@ -99,7 +93,10 @@ def _fetch_quote_from_yahoo(ticker: str) -> dict:
     regular_market_time = meta.get("regularMarketTime")
     updated_at = None
     if regular_market_time:
-        updated_at = datetime.utcfromtimestamp(int(regular_market_time)).isoformat() + "Z"
+        updated_at = (
+            datetime.fromtimestamp(int(regular_market_time), tz=timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
 
     return {
         "ticker": ticker,
