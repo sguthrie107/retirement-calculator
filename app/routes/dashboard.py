@@ -35,9 +35,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             log.exception("Failed to load initial data for %s", selected_user)
 
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "users": user_names,
             "selected_user": selected_user,
             "initial_data": initial_data,
