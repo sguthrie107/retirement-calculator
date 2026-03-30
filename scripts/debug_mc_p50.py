@@ -118,7 +118,7 @@ s2 = SL()
 u_db = s2.query(UserModel).filter(UserModel.name == "Steven").first()
 latest = s2.query(StressTestResult).filter(StressTestResult.user_id == u_db.id).order_by(StressTestResult.created_at.desc()).first()
 if latest:
-    ass = _json.loads(latest.assumptions_json)
+    ass = latest.assumptions_json
     pc  = ass.get("outcome_percentiles", {})
     print(f"  Retirement P10={pc['retirement']['p10']:>14,.0f}  P50={pc['retirement']['p50']:>14,.0f}  P90={pc['retirement']['p90']:>14,.0f}")
     print(f"  Life       P10={pc['life']['p10']:>14,.0f}  P50={pc['life']['p50']:>14,.0f}  P90={pc['life']['p90']:>14,.0f}")

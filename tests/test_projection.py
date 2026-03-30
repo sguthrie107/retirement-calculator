@@ -1,0 +1,302 @@
+"""Unit tests for projection and Monte Carlo calculation logic.
+
+These tests cover pure calculation functions that don't require a running
+database or network access.
+"""
+import math
+import random
+import pytest
+
+from app.services.monte_carlo import (
+    _annual_contribution,
+    _annual_ira_contribution,
+    _draw_annual_return,
+    _is_bond_like_ticker,
+    _normalize_allocation_weights,
+    _rating_for_probability,
+    _estimate_social_security_annual_benefit,
+    _student_t,
+    AssetMoments,
+    RATING_BANDS,
+    BOND_LIKE_TICKERS,
+)
+from lib.calculator_utils import project_root, load_user_profile
+
+
+# ---------------------------------------------------------------------------
+# _draw_annual_return
+# ---------------------------------------------------------------------------
+
+class TestDrawAnnualReturn:
+    def test_zero_shock_approximates_geometric_median(self):
+        """With shock=0 the return should be close to the lognormal geometric median."""
+        mu, sigma = 0.07, 0.12
+        r = _draw_annual_return(mu, sigma, 0.0)
+        expected_geo_median = math.exp(math.log1p(mu) - 0.5 * sigma ** 2) - 1
+        assert abs(r - expected_geo_median) < 1e-10
+
+    def test_positive_shock_raises_return(self):
+        r_flat = _draw_annual_return(0.07, 0.12, 0.0)
+        r_up = _draw_annual_return(0.07, 0.12, 2.0)
+        assert r_up > r_flat
+
+    def test_negative_shock_lowers_return(self):
+        r_flat = _draw_annual_return(0.07, 0.12, 0.0)
+        r_down = _draw_annual_return(0.07, 0.12, -2.0)
+        assert r_down < r_flat
+
+    def test_catastrophic_draw_floored_at_negative_95_pct(self):
+        """Return can never be worse than -95%."""
+        r = _draw_annual_return(0.07, 0.12, -100.0)
+        assert r >= -0.95
+
+    def test_tiny_sigma_is_safe(self):
+        """Sigma close to zero should not cause divide-by-zero errors."""
+        r = _draw_annual_return(0.07, 1e-10, 0.0)
+        assert math.isfinite(r)
+
+
+# ---------------------------------------------------------------------------
+# _rating_for_probability
+# ---------------------------------------------------------------------------
+
+class TestRatingForProbability:
+    @pytest.mark.parametrize("prob,expected_grade", [
+        (95.0, "A"),
+        (92.0, "A"),
+        (88.0, "B"),
+        (85.0, "B"),
+        (77.0, "C"),
+        (75.0, "C"),
+        (62.0, "D"),
+        (60.0, "D"),
+        (50.0, "F"),
+        (0.0,  "F"),
+    ])
+    def test_grade_boundaries(self, prob, expected_grade):
+        rating = _rating_for_probability(prob)
+        assert rating["grade"] == expected_grade
+
+    def test_returns_all_required_keys(self):
+        rating = _rating_for_probability(90.0)
+        assert {"tier", "grade", "label", "min_probability", "description"} == set(rating.keys())
+
+    def test_rating_bands_are_exhaustive(self):
+        """Every probability in [0, 100] should map to a band."""
+        for p in range(0, 101):
+            rating = _rating_for_probability(float(p))
+            assert rating["grade"] in {"A", "B", "C", "D", "F"}
+
+    def test_tier_ordering(self):
+        """Higher probability → higher tier."""
+        tier_high = _rating_for_probability(95.0)["tier"]
+        tier_low = _rating_for_probability(30.0)["tier"]
+        assert tier_high > tier_low
+
+
+# ---------------------------------------------------------------------------
+# _annual_contribution
+# ---------------------------------------------------------------------------
+
+class TestAnnualContribution:
+    def _make_profile(self, employee_pct, match_pct, vested_pct=1.0):
+        return {
+            "contribution_details": {
+                "annual_salary": 100_000,
+                "annual_contribution_pct": employee_pct,
+                "company_match_pct": match_pct,
+                "company_match_vested_pct": vested_pct,
+            }
+        }
+
+    def test_employee_only(self):
+        profile = self._make_profile(0.06, 0.0)
+        assert _annual_contribution(profile, 100_000) == pytest.approx(6_000)
+
+    def test_with_fully_vested_match(self):
+        profile = self._make_profile(0.06, 0.03, 1.0)
+        assert _annual_contribution(profile, 100_000) == pytest.approx(9_000)
+
+    def test_with_partial_vesting(self):
+        profile = self._make_profile(0.06, 0.03, 0.5)
+        # 6% employee + 3% * 50% = 7.5%
+        assert _annual_contribution(profile, 100_000) == pytest.approx(7_500)
+
+    def test_salary_scales_linearly(self):
+        profile = self._make_profile(0.10, 0.0)
+        assert _annual_contribution(profile, 200_000) == pytest.approx(20_000)
+
+    def test_override_contribution_pct(self):
+        profile = self._make_profile(0.06, 0.0)
+        # Override to 10%
+        assert _annual_contribution(profile, 100_000, employee_pct_override=0.10) == pytest.approx(10_000)
+
+
+# ---------------------------------------------------------------------------
+# _annual_ira_contribution
+# ---------------------------------------------------------------------------
+
+class TestAnnualIraContribution:
+    def _profile(self, base_ira):
+        return {"contribution_details": {"annual_ira_contribution": base_ira}}
+
+    def test_zero_base_returns_zero(self):
+        assert _annual_ira_contribution(self._profile(0), 5, 0.03) == 0.0
+
+    def test_year_zero_equals_base(self):
+        assert _annual_ira_contribution(self._profile(7_000), 0, 0.03) == pytest.approx(7_000)
+
+    def test_inflation_compounds(self):
+        base = 7_000
+        r = _annual_ira_contribution(self._profile(base), 10, 0.03)
+        expected = base * (1.03 ** 10)
+        assert r == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# _is_bond_like_ticker
+# ---------------------------------------------------------------------------
+
+class TestIsBondLikeTicker:
+    @pytest.mark.parametrize("ticker", list(BOND_LIKE_TICKERS))
+    def test_bond_tickers_recognized(self, ticker):
+        assert _is_bond_like_ticker(ticker) is True
+
+    @pytest.mark.parametrize("ticker", ["FXAIX", "FZILX", "FSGGX", "VTI"])
+    def test_equity_tickers_not_bond(self, ticker):
+        assert _is_bond_like_ticker(ticker) is False
+
+    def test_case_insensitive(self):
+        ticker = next(iter(BOND_LIKE_TICKERS))
+        assert _is_bond_like_ticker(ticker.lower()) is True
+
+
+# ---------------------------------------------------------------------------
+# _normalize_allocation_weights
+# ---------------------------------------------------------------------------
+
+class TestNormalizeAllocationWeights:
+    def test_already_normalized_unchanged(self):
+        alloc = {
+            "a": {"pct": 0.6, "ticker": "FXAIX"},
+            "b": {"pct": 0.4, "ticker": "FXNAX"},
+        }
+        result = _normalize_allocation_weights(alloc)
+        assert result["a"]["pct"] == pytest.approx(0.6)
+        assert result["b"]["pct"] == pytest.approx(0.4)
+
+    def test_unnormalized_weights_sum_to_one(self):
+        alloc = {
+            "a": {"pct": 3.0, "ticker": "FXAIX"},
+            "b": {"pct": 1.0, "ticker": "FXNAX"},
+            "c": {"pct": 1.0, "ticker": "FZILX"},
+        }
+        result = _normalize_allocation_weights(alloc)
+        total = sum(v["pct"] for v in result.values())
+        assert total == pytest.approx(1.0)
+
+    def test_empty_allocation_returns_empty(self):
+        assert _normalize_allocation_weights({}) == {}
+
+    def test_zero_weight_allocation_returns_empty(self):
+        alloc = {"a": {"pct": 0.0, "ticker": "X"}}
+        assert _normalize_allocation_weights(alloc) == {}
+
+
+# ---------------------------------------------------------------------------
+# _estimate_social_security_annual_benefit
+# ---------------------------------------------------------------------------
+
+class TestSocialSecurity:
+    def _profile(self, salary=100_000, growth=0.03):
+        return {
+            "contribution_details": {
+                "annual_salary": salary,
+                "salary_increase_pct": growth,
+            }
+        }
+
+    def test_benefit_is_positive(self):
+        benefit = _estimate_social_security_annual_benefit(
+            self._profile(), current_age=30, retirement_age=65, claim_age=67
+        )
+        assert benefit > 0
+
+    def test_delayed_claim_increases_benefit(self):
+        b_fra = _estimate_social_security_annual_benefit(
+            self._profile(), current_age=30, retirement_age=65, claim_age=67
+        )
+        b_delayed = _estimate_social_security_annual_benefit(
+            self._profile(), current_age=30, retirement_age=65, claim_age=70
+        )
+        assert b_delayed > b_fra
+
+    def test_early_claim_reduces_benefit(self):
+        b_fra = _estimate_social_security_annual_benefit(
+            self._profile(), current_age=30, retirement_age=65, claim_age=67
+        )
+        b_early = _estimate_social_security_annual_benefit(
+            self._profile(), current_age=30, retirement_age=65, claim_age=62
+        )
+        assert b_early < b_fra
+
+    def test_higher_salary_gives_higher_benefit(self):
+        b_low = _estimate_social_security_annual_benefit(
+            self._profile(salary=50_000), current_age=30, retirement_age=65, claim_age=67
+        )
+        b_high = _estimate_social_security_annual_benefit(
+            self._profile(salary=200_000), current_age=30, retirement_age=65, claim_age=67
+        )
+        assert b_high > b_low
+
+    def test_zero_salary_gives_near_zero_benefit(self):
+        benefit = _estimate_social_security_annual_benefit(
+            self._profile(salary=0), current_age=30, retirement_age=65, claim_age=67
+        )
+        assert benefit == pytest.approx(0.0)
+
+    def test_already_retired_returns_zero(self):
+        """current_age >= retirement_age → no working years → no earnings history."""
+        benefit = _estimate_social_security_annual_benefit(
+            self._profile(), current_age=65, retirement_age=65, claim_age=67
+        )
+        assert benefit == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _student_t
+# ---------------------------------------------------------------------------
+
+class TestStudentT:
+    def test_produces_float(self):
+        rng = random.Random(42)
+        val = _student_t(rng)
+        assert isinstance(val, float)
+        assert math.isfinite(val)
+
+    def test_reproducible_with_seed(self):
+        r1 = random.Random(1)
+        r2 = random.Random(1)
+        assert _student_t(r1) == _student_t(r2)
+
+    def test_distribution_is_centred(self):
+        """Over many draws the mean should be close to zero."""
+        rng = random.Random(0)
+        draws = [_student_t(rng) for _ in range(10_000)]
+        mean = sum(draws) / len(draws)
+        assert abs(mean) < 0.1
+
+
+# ---------------------------------------------------------------------------
+# lib/calculator_utils
+# ---------------------------------------------------------------------------
+
+class TestCalculatorUtils:
+    def test_project_root_exists(self):
+        root = project_root()
+        assert root.exists()
+        assert (root / "data").is_dir()
+        assert (root / "lib").is_dir()
+
+    def test_project_root_contains_users_json(self):
+        assert (project_root() / "data" / "users.json").exists()
