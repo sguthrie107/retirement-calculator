@@ -6,6 +6,7 @@ existing baseline engine unchanged.
 
 from __future__ import annotations
 
+import json
 import math
 import random
 from dataclasses import dataclass
@@ -668,8 +669,9 @@ def run_stress_test(
 
         for year_idx in range(years_to_simulate):
             total_balance = max(bal_401k + bal_ira + bal_income, 0.0)
-            rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
+            # Capture equity before advancing housing state, then advance once per year.
             housing_equity = housing_total_equity(housing_asset_states)
+            rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
             (mu_401k, sigma_401k), (mu_ira, sigma_ira) = _account_phase_moments(
                 user_profile,
                 age,
@@ -696,14 +698,9 @@ def run_stress_test(
             contribution = 0.0
             withdrawal = 0.0
 
-            rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
-
             if age < retirement_age:
                 contribution = _annual_contribution(user_profile, salary)
                 salary *= (1.0 + salary_growth)
-
-                # Rental net cashflow is treated as additional investable contribution.
-                contribution += rental_net_cashflow
             else:
                 if retirement_start_balance is None:
                     retirement_start_balance = total_balance + housing_equity
@@ -720,8 +717,12 @@ def run_stress_test(
                 # Positive rental income offsets retirement draw; negative net rental cashflow increases it.
                 withdrawal = max(annual_withdrawal - social_security_income - rental_net_cashflow, 0.0)
 
+            # Route contributions to their proper account buckets.
+            # 401k employee+match → bal_401k, IRA → bal_ira, rental income → bal_income.
+            contribution_401k = contribution
             contribution_ira = _annual_ira_contribution(user_profile, year_idx, inflation) if age < retirement_age else 0.0
-            contribution_income = contribution + contribution_ira
+            # Rental income is an investable cash flow; in retirement it already offsets withdrawal above.
+            contribution_income = rental_net_cashflow if age < retirement_age else 0.0
 
             if total_balance > 0:
                 share_401k = bal_401k / total_balance
@@ -735,9 +736,6 @@ def run_stress_test(
             withdrawal_401k = withdrawal * share_401k
             withdrawal_ira = withdrawal * share_ira
             withdrawal_income = withdrawal * share_income
-
-            contribution_401k = 0.0
-            contribution_ira = 0.0
 
             # Mid-period cashflow convention avoids overstating or understating timing impacts.
             effective_401k = max(bal_401k + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
@@ -929,18 +927,16 @@ def is_stress_test_snapshot_stale(
     current_total = round(current_401k + current_ira, 2)
 
     try:
-        assumptions = stress_result.assumptions_json or {}
-    except Exception:
-        return True
-
-    snapshot = assumptions.get("portfolio_snapshot", {})
-    stored_total_raw = snapshot.get("starting_total_balance")
-    if stored_total_raw is None:
-        return True
-
-    try:
+        raw = stress_result.assumptions_json or {}
+        # Normalise: PostgreSQL TEXT columns may surface the value as a JSON string
+        # even when the model declares Column(JSON), so parse it when needed.
+        assumptions = json.loads(raw) if isinstance(raw, str) else raw
+        snapshot = assumptions.get("portfolio_snapshot", {})
+        stored_total_raw = snapshot.get("starting_total_balance")
+        if stored_total_raw is None:
+            return True
         stored_total = float(stored_total_raw)
-    except (TypeError, ValueError):
+    except Exception:
         return True
 
     return abs(stored_total - current_total) > tolerance

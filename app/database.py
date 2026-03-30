@@ -94,8 +94,38 @@ def seed_default_users():
         db.close()
 
 
+def _migrate_assumptions_json_column():
+    """Drop stress_test_results if assumptions_json is still a legacy TEXT/VARCHAR column.
+
+    The column was changed from String → JSON in the SQLAlchemy model.  SQLAlchemy's
+    create_all() never alters existing tables, so an existing deployment that was
+    created under the old schema would have a TEXT column.  Inserting a Python dict
+    into a PostgreSQL TEXT column raises ``ProgrammingError: can't adapt type 'dict'``.
+    Dropping the table here lets create_all() recreate it with the correct JSON type.
+    Stress-test results are re-computed on demand so data loss is acceptable.
+    """
+    from sqlalchemy import inspect, text as sa_text
+
+    inspector = inspect(engine)
+    if not inspector.has_table("stress_test_results"):
+        return
+
+    columns = {col["name"]: col for col in inspector.get_columns("stress_test_results")}
+    assumptions_col = columns.get("assumptions_json")
+    if not assumptions_col:
+        return
+
+    col_type_str = str(assumptions_col["type"]).upper()
+    # JSON columns report as "JSON" or "JSONB"; old String columns report "VARCHAR" or "TEXT".
+    if "JSON" not in col_type_str:
+        with engine.begin() as conn:
+            conn.execute(sa_text("DROP TABLE stress_test_results"))
+        log.info("Migrated stress_test_results: dropped legacy TEXT assumptions_json column (will be recreated as JSON)")
+
+
 def init_db():
     """Initialize database tables and seed default data."""
+    _migrate_assumptions_json_column()
     Base.metadata.create_all(bind=engine)
     seed_default_users()
 
