@@ -3,24 +3,24 @@
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-    #deltaContent table th {
+    #deltaContent .performance-comparison-table th {
         background: #1F3A8A !important;
         color: #F8F5EE !important;
         border-bottom: 2px solid #162C6D !important;
     }
 
-    #deltaContent table tbody tr:nth-child(odd),
-    #deltaContent table tbody tr:nth-child(odd) td {
+    #deltaContent .performance-comparison-table tbody tr:nth-child(odd),
+    #deltaContent .performance-comparison-table tbody tr:nth-child(odd) td {
         background: #F7F4ED !important;
     }
 
-    #deltaContent table tbody tr:nth-child(even),
-    #deltaContent table tbody tr:nth-child(even) td {
+    #deltaContent .performance-comparison-table tbody tr:nth-child(even),
+    #deltaContent .performance-comparison-table tbody tr:nth-child(even) td {
         background: rgba(31, 58, 138, 0.12) !important;
     }
 
-    #deltaContent table tbody tr:hover,
-    #deltaContent table tbody tr:hover td {
+    #deltaContent .performance-comparison-table tbody tr:hover,
+    #deltaContent .performance-comparison-table tbody tr:hover td {
         background: rgba(31, 58, 138, 0.2) !important;
     }
 </style>
@@ -169,7 +169,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/chart.js?v=20260331-benchmark2"></script>
+<script src="/static/js/chart.js?v=20260331-benchmark3"></script>
 <script>
     // Embed initial data from server
     const initialData = {{ initial_data | tojson | safe }};
