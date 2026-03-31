@@ -1382,3 +1382,309 @@ html {
     }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   Benchmark expand button (in Performance Comparison table)
+══════════════════════════════════════════════════════════════════════════════ */
+
+.btn-benchmark-expand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-family: inherit;
+    letter-spacing: 0.02em;
+    border: 1px solid var(--trim-color);
+    border-radius: 5px;
+    background: rgba(200, 164, 77, 0.08);
+    color: #7A5E1A;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.btn-benchmark-expand:hover {
+    background: rgba(200, 164, 77, 0.22);
+    border-color: #b08826;
+    color: #5a4010;
+}
+
+.btn-benchmark-expand.open {
+    background: var(--primary-color);
+    border-color: var(--primary-hover);
+    color: #fff;
+}
+
+.btn-benchmark-expand .expand-arrow {
+    display: inline-block;
+    transition: transform 0.2s;
+    font-style: normal;
+}
+
+.btn-benchmark-expand.open .expand-arrow {
+    transform: rotate(90deg);
+}
+
+/* ── Expandable detail row ─────────────────────────────────────────────────── */
+
+.benchmark-detail-row td {
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.benchmark-detail-panel {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.35s ease;
+    background: transparent;
+}
+
+.benchmark-detail-panel.open {
+    max-height: 900px;
+}
+
+.benchmark-detail-inner {
+    padding: 1rem 1.2rem 1.4rem;
+    background: linear-gradient(135deg, #f8f5ee 0%, #fffcf5 100%);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--trim-color);
+    border-radius: 0;
+    margin: 0 0 0.5rem;
+}
+
+/* ── Benchmark stat cards ──────────────────────────────────────────────────── */
+
+.benchmark-stats {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+}
+
+.bm-stat-card {
+    flex: 1 1 130px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 0.9rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
+    text-align: center;
+    min-width: 110px;
+}
+
+.bm-stat-card .stat-label {
+    font-size: 0.67rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.bm-stat-card .stat-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--text-primary);
+}
+
+.bm-stat-card .stat-value.positive { color: #166534; }
+.bm-stat-card .stat-value.negative { color: #991B1B; }
+.bm-stat-card .stat-value.neutral  { color: var(--text-secondary); }
+
+.bm-stat-card .stat-sub {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+}
+
+.bm-badge {
+    display: inline-block;
+    margin-top: 0.3rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.bm-badge.outperformed {
+    background: #DCFCE7;
+    color: #166534;
+    border: 1px solid #86EFAC;
+}
+
+.bm-badge.underperformed {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FCA5A5;
+}
+
+/* ── Benchmark chart wrapper ───────────────────────────────────────────────── */
+
+.benchmark-chart-wrapper {
+    position: relative;
+    height: 240px;
+    margin-bottom: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.6rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.benchmark-chart-wrapper canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.benchmark-chart-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 0.4rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── Allocation breakdown table ────────────────────────────────────────────── */
+
+.benchmark-alloc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+@media (max-width: 640px) {
+    .benchmark-alloc-grid { grid-template-columns: 1fr; }
+    .benchmark-stats      { flex-direction: column; }
+    .benchmark-chart-wrapper { height: 200px; }
+}
+
+.alloc-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    overflow: hidden;
+}
+
+.alloc-block-header {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--background);
+    border-radius: 0;
+}
+
+.alloc-block-header.user-header {
+    background: var(--primary-color);
+}
+
+.alloc-block-header.bog-header {
+    background: #92400E;
+}
+
+.alloc-block-header.f2060-header {
+    background: #0D7A6E;
+}
+
+.alloc-block table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.77rem;
+}
+
+.alloc-block table th {
+    padding: 0.3rem 0.65rem;
+    font-weight: 600;
+    font-size: 0.67rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+}
+
+.alloc-block table th:first-child,
+.alloc-block table th:last-child {
+    border-radius: 0;
+}
+
+.alloc-block table tr:last-child td:first-child,
+.alloc-block table tr:last-child td:last-child {
+    border-radius: 0;
+}
+
+.alloc-block table td {
+    padding: 0.32rem 0.65rem;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+.alloc-block table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Default (user portfolio) — blue tint */
+.alloc-block table tr:nth-child(even) td {
+    background: rgba(31, 58, 138, 0.04);
+}
+
+/* Boglehead block — rust/brown tint matching the header */
+.alloc-block.bog-block table tr:nth-child(even) td {
+    background: rgba(146, 64, 14, 0.05);
+}
+
+/* Freedom 2060 block — teal tint matching the header */
+.alloc-block.f2060-block table tr:nth-child(even) td {
+    background: rgba(13, 122, 110, 0.05);
+}
+
+.alloc-weight-bar {
+    display: inline-block;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--primary-color);
+    vertical-align: middle;
+    margin-right: 0.35rem;
+}
+
+.alloc-weight-bar.bog   { background: #92400E; }
+.alloc-weight-bar.f2060 { background: #0D7A6E; }
+
+.bm-loading {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.bm-error {
+    text-align: center;
+    padding: 1rem;
+    color: #991B1B;
+    font-size: 0.82rem;
+    background: #FEE2E2;
+    border-radius: 8px;
+}
+
+.benchmark-footnote {
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    text-align: right;
+    margin-top: 0.5rem;
+    font-style: italic;
+}
+

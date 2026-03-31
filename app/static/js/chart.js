@@ -12,6 +12,10 @@ let currentAllUsersData = null;
 let selectedDeductionRate = 0.05;
 let isStandardDeductionEnabled = false;
 
+// ── Benchmark comparison state ─────────────────────────────────────────────
+const _benchmarkCache  = {};   // keyed "username_year"  → API response payload
+const _benchmarkCharts = {};   // keyed "username_year"  → Chart.js instance
+
 if (window.Chart) {
     Chart.defaults.font.family = 'Montserrat, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
     Chart.defaults.color = '#475569';
@@ -1263,6 +1267,14 @@ function renderDeltaTable(deltas) {
     }
     
     console.log('renderDeltaTable - deltas received:', deltas);
+
+    // Destroy any lingering benchmark chart instances when the user switches
+    Object.keys(_benchmarkCharts).forEach(k => {
+        try { _benchmarkCharts[k].destroy(); } catch (_) {}
+        delete _benchmarkCharts[k];
+    });
+
+    const COL_COUNT = 8; // year, projected, actual, diff$, diff%, updated, actions, compare
     
     let html = '<table class="performance-comparison-table"><thead><tr>';
     html += '<th>Year</th>';
@@ -1272,6 +1284,7 @@ function renderDeltaTable(deltas) {
     html += '<th>Difference (%)</th>';
     html += '<th>Last Updated</th>';
     html += '<th>Actions</th>';
+    html += '<th>vs. Benchmark</th>';
     html += '</tr></thead><tbody>';
     
     deltas.forEach((delta, idx) => {
@@ -1280,12 +1293,13 @@ function renderDeltaTable(deltas) {
         const diffClass = !hasDelta ? '' : (delta.delta >= 0 ? 'positive' : 'negative');
         const diffSign = hasDelta && delta.delta >= 0 ? '+' : '';
         const balanceIdStr = delta.balance_ids ? delta.balance_ids.join(',') : '';
+        const panelId  = `bm-panel-${delta.year}`;
+        const canvasId = `bm-canvas-${delta.year}`;
         
         // Format timestamp to EST timezone
         let timestampDisplay = '-';
         if (delta.timestamp) {
             try {
-                // Parse as UTC by appending Z if not present
                 let isoString = delta.timestamp;
                 if (!isoString.includes('Z') && !isoString.includes('+') && !isoString.includes('-', 10)) {
                     isoString += 'Z';
@@ -1308,6 +1322,7 @@ function renderDeltaTable(deltas) {
         
         console.log(`Delta ${idx} - year: ${delta.year}, balance_ids:`, delta.balance_ids, 'balanceIdStr:', balanceIdStr);
         
+        // ── Data row ──────────────────────────────────────────────────────────
         html += '<tr>';
         html += `<td><strong>${delta.year}</strong></td>`;
         html += `<td>${hasProjected ? formatCurrency(delta.projected) : '—'}</td>`;
@@ -1319,13 +1334,29 @@ function renderDeltaTable(deltas) {
                     <button type="button" class="btn-edit" data-balance-ids="${balanceIdStr}" data-year="${delta.year}" data-balance="${delta.actual}" title="Edit">✏️</button>
                     <button type="button" class="btn-delete" onclick="handleDeleteClick('${balanceIdStr}', ${delta.year})" title="Delete">🗑️</button>
                 </td>`;
+        html += `<td>
+                    <button class="btn-benchmark-expand"
+                            id="bm-btn-${delta.year}"
+                            onclick="toggleBenchmarkRow(${delta.year})"
+                            title="Compare to Boglehead 3-Fund Portfolio">
+                        <i class="expand-arrow">▶</i> Compare
+                    </button>
+                </td>`;
         html += '</tr>';
+
+        // ── Expandable detail row (hidden by default) ────────────────────────
+        html += `<tr class="benchmark-detail-row" id="bm-row-${delta.year}">`;
+        html += `<td colspan="${COL_COUNT}">`;
+        html += `<div class="benchmark-detail-panel" id="${panelId}">`;
+        html += `<div class="benchmark-detail-inner">`;
+        html += `<div class="bm-loading" id="bm-loading-${delta.year}">Loading benchmark data…</div>`;
+        html += `</div></div></td></tr>`;
     });
     
     html += '</tbody></table>';
     content.innerHTML = html;
     
-    // Attach event listeners to edit buttons (different elements)
+    // Attach event listeners to edit buttons (inline onclick can't close over objects)
     const editButtons = content.querySelectorAll('.btn-edit');
     console.log(`Found ${editButtons.length} edit buttons`);
     
@@ -1340,6 +1371,298 @@ function renderDeltaTable(deltas) {
             console.log(`Edit button ${idx} clicked - year: ${year}, balanceIdStr: ${balanceIdStr}`);
             editBalance(balanceIdStr, year, balance);
         });
+    });
+}
+
+// ── Benchmark expand / collapse ───────────────────────────────────────────────
+
+async function toggleBenchmarkRow(year) {
+    const panel = document.getElementById(`bm-panel-${year}`);
+    const btn   = document.getElementById(`bm-btn-${year}`);
+    if (!panel || !btn) return;
+
+    const isOpen = panel.classList.contains('open');
+
+    if (isOpen) {
+        panel.classList.remove('open');
+        btn.classList.remove('open');
+    } else {
+        panel.classList.add('open');
+        btn.classList.add('open');
+
+        const username = currentSingleUsername;
+        if (!username) return;
+
+        const cacheKey = `${username}_${year}`;
+        if (_benchmarkCache[cacheKey]) {
+            _renderBenchmarkPanel(year, _benchmarkCache[cacheKey]);
+        } else {
+            await _fetchAndRenderBenchmark(username, year);
+        }
+    }
+}
+
+async function _fetchAndRenderBenchmark(username, year) {
+    const cacheKey  = `${username}_${year}`;
+    try {
+        const response = await fetch(`/api/benchmark/${encodeURIComponent(username)}/${year}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const data = await response.json();
+        _benchmarkCache[cacheKey] = data;
+        _renderBenchmarkPanel(year, data);
+    } catch (err) {
+        console.error(`Benchmark fetch failed for ${username}/${year}:`, err);
+        const inner = document.querySelector(`#bm-panel-${year} .benchmark-detail-inner`);
+        if (inner) {
+            inner.innerHTML = `<div class="bm-error">⚠ Could not load benchmark data: ${err.message}<br><small>Ensure the server can reach Yahoo Finance for this year's data.</small></div>`;
+        }
+    }
+}
+
+function _renderBenchmarkPanel(year, data) {
+    const panelInner = document.querySelector(`#bm-panel-${year} .benchmark-detail-inner`);
+    if (!panelInner) return;
+
+    const canvasId = `bm-canvas-${year}`;
+    const username = data.username || currentSingleUsername || 'Portfolio';
+    const cacheKey = `${username}_${year}`;
+
+    const user  = data.user_portfolio || {};
+    const bog   = data.boglehead      || {};
+    const f2060 = data.freedom_2060   || {};
+
+    const userRet  = typeof user.annual_return_pct  === 'number' ? user.annual_return_pct  : null;
+    const bogRet   = typeof bog.annual_return_pct   === 'number' ? bog.annual_return_pct   : null;
+    const f2060Ret = typeof f2060.annual_return_pct === 'number' ? f2060.annual_return_pct : null;
+    const alpha    = typeof data.alpha_pct           === 'number' ? data.alpha_pct           : null;
+
+    const fmt1 = v => v !== null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '—';
+    const cls  = v => v === null ? 'neutral' : (v >= 0 ? 'positive' : 'negative');
+
+    // ── Stat cards ─────────────────────────────────────────────────────────
+    const badgeHtml = alpha !== null
+        ? `<span class="bm-badge ${data.outperformed ? 'outperformed' : 'underperformed'}">
+             ${data.outperformed ? '▲ Outperformed' : '▼ Underperformed'}
+           </span>`
+        : '';
+
+    const statsHtml = `
+        <div class="benchmark-stats">
+            <div class="bm-stat-card">
+                <div class="stat-label">${username}'s Return (${year})</div>
+                <div class="stat-value ${cls(userRet)}">${fmt1(userRet)}</div>
+                <div class="stat-sub">${user.allocation_label || ''}</div>
+            </div>
+            <div class="bm-stat-card">
+                <div class="stat-label">Boglehead 3-Fund (${year})</div>
+                <div class="stat-value ${cls(bogRet)}">${fmt1(bogRet)}</div>
+                <div class="stat-sub">VTI 60% / VXUS 20% / BND 20%</div>
+            </div>
+            <div class="bm-stat-card">
+                <div class="stat-label">Fidelity Freedom 2060 (${year})</div>
+                <div class="stat-value ${cls(f2060Ret)}">${fmt1(f2060Ret)}</div>
+                <div class="stat-sub">FDKLX — target date fund</div>
+            </div>
+            <div class="bm-stat-card">
+                <div class="stat-label">Alpha vs Boglehead</div>
+                <div class="stat-value ${cls(alpha)}">${fmt1(alpha)}</div>
+                ${badgeHtml}
+            </div>
+        </div>`;
+
+    // ── Chart ───────────────────────────────────────────────────────────────
+    const chartHtml = `
+        <div class="benchmark-chart-title">
+            Normalized Growth — Jan 1 to Dec 31, ${year} &nbsp;(Base = $100)
+        </div>
+        <div class="benchmark-chart-wrapper">
+            <canvas id="${canvasId}"></canvas>
+        </div>`;
+
+    // ── Allocation breakdown tables ─────────────────────────────────────────
+    const userDetails  = user.ticker_details  || [];
+    const bogDetails   = bog.ticker_details   || [];
+    const f2060Details = f2060.ticker_details || [];
+
+    function allocRows(details, barClass) {
+        const isUser = barClass === '';
+        return details.map(d => {
+            const ret    = d.return_pct;
+            const retStr = (ret !== null && ret !== undefined) ? `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%` : '—';
+            const retCls = ret > 0 ? 'positive' : ret < 0 ? 'negative' : '';
+            const weight = d.weight * 100;
+            const ticker = isUser ? (d.proxy || d.ticker) : (d.ticker || d.proxy);
+            const origNote = isUser && d.original && d.original !== d.proxy
+                ? `<span style="font-size:0.64rem;color:#aaa;display:block">(holds ${d.original})</span>`
+                : '';
+            return `<tr>
+                <td>
+                    <span class="alloc-weight-bar ${barClass}" style="width:${Math.round(weight * 0.8)}px"></span>
+                    <strong>${ticker}</strong>${origNote}
+                </td>
+                <td>${d.desc || '—'}</td>
+                <td style="text-align:right">${weight.toFixed(1)}%</td>
+                <td style="text-align:right" class="${retCls}">${retStr}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    const allocHtml = `
+        <div class="benchmark-alloc-grid">
+            <div class="alloc-block">
+                <div class="alloc-block-header user-header">${username}'s Allocation (proxy ETFs)</div>
+                <table>
+                    <thead><tr>
+                        <th>ETF</th>
+                        <th>Description</th>
+                        <th style="text-align:right">Weight</th>
+                        <th style="text-align:right">${year} Return</th>
+                    </tr></thead>
+                    <tbody>${allocRows(userDetails, '')}</tbody>
+                </table>
+            </div>
+            <div class="alloc-block bog-block">
+                <div class="alloc-block-header bog-header">Boglehead 3-Fund Portfolio</div>
+                <table>
+                    <thead><tr>
+                        <th>ETF</th>
+                        <th>Description</th>
+                        <th style="text-align:right">Weight</th>
+                        <th style="text-align:right">${year} Return</th>
+                    </tr></thead>
+                    <tbody>${allocRows(bogDetails, 'bog')}</tbody>
+                </table>
+            </div>
+        </div>`;
+
+    const footnoteHtml = `
+        <p class="benchmark-footnote">
+            Data: ${data.data_source || 'Yahoo Finance'} ·
+            Prices adjusted for dividends &amp; splits ·
+            User allocation uses proxy ETFs for funds without public price history ·
+            Assumes constant weighting throughout the full calendar year ${year}
+        </p>`;
+
+    panelInner.innerHTML = statsHtml + chartHtml + allocHtml + footnoteHtml;
+
+    // ── Draw Chart.js chart ─────────────────────────────────────────────────
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !window.Chart) return;
+
+    if (_benchmarkCharts[cacheKey]) {
+        try { _benchmarkCharts[cacheKey].destroy(); } catch (_) {}
+    }
+
+    const months    = data.months || ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const userNorm  = (user.normalized  || []).map(v => (v !== null && v !== undefined) ? v : null);
+    const bogNorm   = (bog.normalized   || []).map(v => (v !== null && v !== undefined) ? v : null);
+    const f2060Norm = (f2060.normalized || []).map(v => (v !== null && v !== undefined) ? v : null);
+
+    // Prepend a Jan 1 baseline of 100 so the chart opens at the flat start
+    const labels     = [`Jan 1`, ...months];
+    const userData   = [100, ...userNorm];
+    const bogData    = [100, ...bogNorm];
+    const f2060Data  = [100, ...f2060Norm];
+
+    _benchmarkCharts[cacheKey] = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label:            user.label || `${username}'s Portfolio`,
+                    data:             userData,
+                    borderColor:      '#1F3A8A',
+                    backgroundColor:  'rgba(31,58,138,0.08)',
+                    borderWidth:      2.5,
+                    pointRadius:      3,
+                    pointHoverRadius: 5,
+                    tension:          0.3,
+                    fill:             true,
+                    spanGaps:         true,
+                },
+                {
+                    label:            bog.label || 'Boglehead 3-Fund',
+                    data:             bogData,
+                    borderColor:      '#C8A44D',
+                    backgroundColor:  'rgba(200,164,77,0.07)',
+                    borderWidth:      2.5,
+                    borderDash:       [5, 3],
+                    pointRadius:      3,
+                    pointHoverRadius: 5,
+                    tension:          0.3,
+                    fill:             true,
+                    spanGaps:         true,
+                },
+                {
+                    label:            f2060.label || 'Fidelity Freedom 2060',
+                    data:             f2060Data,
+                    borderColor:      '#0D9488',
+                    backgroundColor:  'rgba(13,148,136,0.06)',
+                    borderWidth:      2.5,
+                    borderDash:       [3, 3],
+                    pointRadius:      3,
+                    pointHoverRadius: 5,
+                    tension:          0.3,
+                    fill:             true,
+                    spanGaps:         true,
+                },
+            ],
+        },
+        options: {
+            responsive:          true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        font:     { size: 11, family: 'Montserrat, sans-serif' },
+                        boxWidth: 14,
+                        padding:  16,
+                    },
+                },
+                tooltip: {
+                    callbacks: {
+                        title: ctx => `${ctx[0].label} ${year}`,
+                        label: ctx => {
+                            const v = ctx.parsed.y;
+                            if (v === null || v === undefined) return `${ctx.dataset.label}: —`;
+                            const change = v - 100;
+                            const sign   = change >= 0 ? '+' : '';
+                            return `${ctx.dataset.label}: $${v.toFixed(2)}  (${sign}${change.toFixed(2)}%)`;
+                        },
+                    },
+                    backgroundColor: 'rgba(15,30,61,0.88)',
+                    titleColor:      '#C8A44D',
+                    bodyColor:       '#F8F5EE',
+                    padding:         10,
+                    cornerRadius:    6,
+                },
+            },
+            scales: {
+                x: {
+                    grid:  { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 10 }, color: '#6A7791' },
+                },
+                y: {
+                    grid: { color: 'rgba(0,0,0,0.06)' },
+                    ticks: {
+                        font:     { size: 10 },
+                        color:    '#6A7791',
+                        callback: v => `$${v.toFixed(0)}`,
+                    },
+                    title: {
+                        display: true,
+                        text:    'Growth of $100 invested Jan 1',
+                        color:   '#6A7791',
+                        font:    { size: 10 },
+                    },
+                },
+            },
+        },
     });
 }
 
@@ -2158,4 +2481,5 @@ if (typeof window !== 'undefined') {
     window.toggleAssumptions = toggleAssumptions;
     window.onDeductionRateChange = onDeductionRateChange;
     window.onStandardDeductionToggleChange = onStandardDeductionToggleChange;
+    window.toggleBenchmarkRow = toggleBenchmarkRow;
 }

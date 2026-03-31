@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
 from .database import init_db
-from .routes import dashboard, projections, balances, stress_test, holdings
+from .routes import dashboard, projections, balances, stress_test, holdings, benchmark
 from .auth import BasicAuthMiddleware
 from .security_headers import SecurityHeadersMiddleware
 from .limiter import limiter
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(holdings.router, tags=["holdings"])
     app.include_router(balances.router, tags=["balances"])
     app.include_router(stress_test.router, tags=["stress-test"])
+    app.include_router(benchmark.router, tags=["benchmark"])
 
     @app.get("/health", include_in_schema=False)
     def health_check():
