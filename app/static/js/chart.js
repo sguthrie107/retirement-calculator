@@ -1562,21 +1562,22 @@ function _renderBenchmarkPanel(year, data) {
     const bogNorm   = (bog.normalized   || []).map(v => (v !== null && v !== undefined) ? v : null);
     const f2060Norm = (f2060.normalized || []).map(v => (v !== null && v !== undefined) ? v : null);
 
-    // 13 points: "Jan 1" baseline ($100) + one end-of-month close per month.
-    // This way Jan 1 is the visible start and Dec is the Dec 31 close — full year.
-    const labels    = ['Jan 1', ...months];
-    const userData  = [100, ...userNorm];
-    const bogData   = [100, ...bogNorm];
-    const f2060Data = [100, ...f2060Norm];
+    // 14 points: "Jan 1" baseline + one end-of-month close per month + "Dec 31" spacer.
+    // The trailing "Dec 31" tick has null data so December's dot sits inside the chart
+    // rather than on the right boundary, making it clear Dec is a completed month.
+    const labels    = ['Jan 1', ...months, 'Dec 31'];
+    const userData  = [100, ...userNorm,  null];
+    const bogData   = [100, ...bogNorm,   null];
+    const f2060Data = [100, ...f2060Norm, null];
 
     // ── Projected "line of fit" ─────────────────────────────────────────────
     // Build a smooth compound-growth curve using the user's plan assumed return.
-    // 13 points: 100 at Jan 1, then monthly compound growth through Dec.
+    // 14 points matching labels above (null at the trailing Dec 31 spacer).
     const projectedFitData = planReturnPct !== null
         ? [100, ...months.map((_, i) => {
               const monthlyRate = Math.pow(1 + planReturnPct / 100, 1 / 12) - 1;
               return parseFloat((100 * Math.pow(1 + monthlyRate, i + 1)).toFixed(4));
-          })]
+          }), null]
         : null;
 
     _benchmarkCharts[cacheKey] = new Chart(canvas, {
