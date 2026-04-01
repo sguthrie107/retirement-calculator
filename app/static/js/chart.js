@@ -1673,7 +1673,6 @@ function _renderBenchmarkPanel(year, data) {
             },
             scales: {
                 x: {
-                    offset: true,
                     grid:   { color: 'rgba(0,0,0,0.04)' },
                     ticks:  { font: { size: 10 }, color: '#6A7791' },
                 },
