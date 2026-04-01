@@ -8,6 +8,7 @@ Covers:
   - Security headers on every response
   - Health check
 """
+import base64
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from app.main import create_app
 from app.database import get_db
 from app.models import Base, User
 from app.sanitize import sanitize_name, sanitize_notes
+from app import auth as auth_module
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
@@ -90,6 +92,29 @@ def readonly_client(_db_session_factory):
 
     with TestClient(application, base_url="http://localhost") as c:
         yield c
+
+
+@pytest.fixture
+def remote_client(_db_session_factory):
+    """TestClient with non-local host so auth middleware is fully enforced."""
+    application = create_app()
+
+    def _override():
+        db = _db_session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    application.dependency_overrides[get_db] = _override
+
+    with TestClient(application, base_url="http://example.com") as c:
+        yield c
+
+
+def _basic_auth(username: str, password: str) -> dict[str, str]:
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
 
 
 # ── Sanitize unit tests ────────────────────────────────────────────────────
@@ -276,6 +301,51 @@ class TestAuthEnforcement:
         with patch("app.routes.balances.is_editor", return_value=False):
             resp = readonly_client.get("/api/balances/Steven")
         assert resp.status_code == 200
+
+
+class TestAuthHardening:
+    def test_lockout_after_repeated_failed_attempts(self, remote_client, monkeypatch):
+        monkeypatch.setitem(auth_module._USERS, "steven", "correct-password")
+        monkeypatch.setitem(auth_module._USERS, "alyssa", "")
+        monkeypatch.setitem(auth_module._USERS, "guest", "")
+        monkeypatch.setattr(auth_module, "_MAX_FAILED_ATTEMPTS", 2)
+        monkeypatch.setattr(auth_module, "_FAILED_WINDOW_SECONDS", 300)
+        monkeypatch.setattr(auth_module, "_LOCKOUT_SECONDS", 60)
+        auth_module._FAILED_ATTEMPTS_BY_IP.clear()
+        auth_module._LOCKED_UNTIL_BY_IP.clear()
+
+        bad_headers = _basic_auth("steven", "wrong-password")
+
+        first = remote_client.get("/api/balances/Steven", headers=bad_headers)
+        second = remote_client.get("/api/balances/Steven", headers=bad_headers)
+        third = remote_client.get("/api/balances/Steven", headers=bad_headers)
+
+        assert first.status_code == 401
+        assert second.status_code == 401
+        assert third.status_code == 429
+        assert third.headers.get("Retry-After") is not None
+
+    def test_successful_login_clears_failure_state(self, remote_client, monkeypatch):
+        monkeypatch.setitem(auth_module._USERS, "steven", "correct-password")
+        monkeypatch.setitem(auth_module._USERS, "alyssa", "")
+        monkeypatch.setitem(auth_module._USERS, "guest", "")
+        monkeypatch.setattr(auth_module, "_MAX_FAILED_ATTEMPTS", 3)
+        monkeypatch.setattr(auth_module, "_FAILED_WINDOW_SECONDS", 300)
+        monkeypatch.setattr(auth_module, "_LOCKOUT_SECONDS", 60)
+        auth_module._FAILED_ATTEMPTS_BY_IP.clear()
+        auth_module._LOCKED_UNTIL_BY_IP.clear()
+
+        bad_headers = _basic_auth("steven", "wrong-password")
+        good_headers = _basic_auth("steven", "correct-password")
+
+        bad = remote_client.get("/api/balances/Steven", headers=bad_headers)
+        good = remote_client.get("/api/balances/Steven", headers=good_headers)
+        bad_again = remote_client.get("/api/balances/Steven", headers=bad_headers)
+
+        assert bad.status_code == 401
+        assert good.status_code == 200
+        assert bad_again.status_code == 401
+        assert not auth_module._LOCKED_UNTIL_BY_IP
 
 
 # ── Security headers ───────────────────────────────────────────────────────
