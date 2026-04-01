@@ -1473,6 +1473,7 @@ function _renderBenchmarkPanel(year, data) {
         </div>`;
 
     // ── Chart ───────────────────────────────────────────────────────────────
+    const planReturnPct = typeof user.plan_projected_return_pct === 'number' ? user.plan_projected_return_pct : null;
     const planLabel = planReturnPct !== null ? ` · Plan assumes ${planReturnPct.toFixed(1)}%/yr` : '';
     const chartHtml = `
         <div class="benchmark-chart-title">
@@ -1569,7 +1570,6 @@ function _renderBenchmarkPanel(year, data) {
 
     // ── Projected "line of fit" ─────────────────────────────────────────────
     // Build a smooth compound-growth curve using the user's plan assumed return.
-    const planReturnPct = typeof user.plan_projected_return_pct === 'number' ? user.plan_projected_return_pct : null;
     const projectedFitData = planReturnPct !== null
         ? months.map((_, i) => {
               const monthlyRate = Math.pow(1 + planReturnPct / 100, 1 / 12) - 1;
