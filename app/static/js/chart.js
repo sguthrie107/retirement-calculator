@@ -1473,9 +1473,10 @@ function _renderBenchmarkPanel(year, data) {
         </div>`;
 
     // ── Chart ───────────────────────────────────────────────────────────────
+    const planLabel = planReturnPct !== null ? ` · Plan assumes ${planReturnPct.toFixed(1)}%/yr` : '';
     const chartHtml = `
         <div class="benchmark-chart-title">
-            Normalized Growth — Jan 1 to Dec 31, ${year} &nbsp;(Base = $100)
+            Normalized Growth — ${year} &nbsp;(Base = $100 on Jan 1${planLabel})
         </div>
         <div class="benchmark-chart-wrapper">
             <canvas id="${canvasId}"></canvas>
@@ -1560,11 +1561,21 @@ function _renderBenchmarkPanel(year, data) {
     const bogNorm   = (bog.normalized   || []).map(v => (v !== null && v !== undefined) ? v : null);
     const f2060Norm = (f2060.normalized || []).map(v => (v !== null && v !== undefined) ? v : null);
 
-    // Prepend a Jan 1 baseline of 100 so the chart opens at the flat start
-    const labels     = [`Jan 1`, ...months];
-    const userData   = [100, ...userNorm];
-    const bogData    = [100, ...bogNorm];
-    const f2060Data  = [100, ...f2060Norm];
+    // Each month label = end-of-month value; Jan = through Jan 31, Dec = through Dec 31
+    const labels     = months;
+    const userData   = userNorm;
+    const bogData    = bogNorm;
+    const f2060Data  = f2060Norm;
+
+    // ── Projected "line of fit" ─────────────────────────────────────────────
+    // Build a smooth compound-growth curve using the user's plan assumed return.
+    const planReturnPct = typeof user.plan_projected_return_pct === 'number' ? user.plan_projected_return_pct : null;
+    const projectedFitData = planReturnPct !== null
+        ? months.map((_, i) => {
+              const monthlyRate = Math.pow(1 + planReturnPct / 100, 1 / 12) - 1;
+              return parseFloat((100 * Math.pow(1 + monthlyRate, i + 1)).toFixed(4));
+          })
+        : null;
 
     _benchmarkCharts[cacheKey] = new Chart(canvas, {
         type: 'line',
@@ -1609,6 +1620,21 @@ function _renderBenchmarkPanel(year, data) {
                     fill:             true,
                     spanGaps:         true,
                 },
+                ...(projectedFitData ? [{
+                    label:            planReturnPct !== null
+                                          ? `Plan Projected (${planReturnPct.toFixed(1)}%/yr)`
+                                          : 'Plan Projected Return',
+                    data:             projectedFitData,
+                    borderColor:      '#9333EA',
+                    backgroundColor:  'transparent',
+                    borderWidth:      1.5,
+                    borderDash:       [6, 4],
+                    pointRadius:      0,
+                    pointHoverRadius: 3,
+                    tension:          0,
+                    fill:             false,
+                    spanGaps:         true,
+                }] : []),
             ],
         },
         options: {
@@ -1656,7 +1682,7 @@ function _renderBenchmarkPanel(year, data) {
                     },
                     title: {
                         display: true,
-                        text:    'Growth of $100 invested Jan 1',
+                        text:    'Growth of $100 (Jan 1 baseline)',
                         color:   '#6A7791',
                         font:    { size: 10 },
                     },

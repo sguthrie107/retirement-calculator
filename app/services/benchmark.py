@@ -332,6 +332,71 @@ def _original_ticker_map(profile: dict, year: int) -> dict[str, str]:
     return mapping
 
 
+def _blended_projected_return_pct(profile: dict, year: int) -> float | None:
+    """
+    Compute the user's blended *plan-assumed* annual return (%) for *year*.
+
+    Uses the same phase/age logic as ``_user_proxy_weights`` but works with
+    the original fund tickers (FZROX, FXAIX …) rather than the proxy ETFs,
+    so we can look up each fund's ``projected_annual_return_pct`` from
+    stocks.json / bonds.json.
+
+    Returns a percentage, e.g. ``9.12`` for 9.12 %.
+    Returns ``None`` if the data cannot be resolved.
+    """
+    try:
+        from lib.data_loader import get_fund_by_ticker
+        from lib.constants import DATA_FILES
+    except ImportError:
+        return None
+
+    age_ref  = int(profile.get("age_reference_year", _DEFAULT_AGE_REFERENCE_YEAR))
+    base_age = int(profile.get("age", 0))
+    age      = base_age + (year - age_ref)
+
+    ira_alloc  = _phase_alloc_for_age(profile.get("ira_phases",  {}), age)
+    k401_alloc = _phase_alloc_for_age(profile.get("401k_phases", {}), age)
+
+    ira_bal  = float(profile.get("current_ira_balance",  0))
+    k401_bal = float(profile.get("current_401k_balance", 0))
+    total    = ira_bal + k401_bal
+    ira_w    = (ira_bal / total) if total > 0 else 0.5
+    k401_w   = 1.0 - ira_w
+
+    # Merge raw (original-ticker) allocations weighted by account balances
+    raw: dict[str, float] = {}
+    for ticker, pct in ira_alloc.items():
+        raw[ticker] = raw.get(ticker, 0.0) + pct * ira_w
+    for ticker, pct in k401_alloc.items():
+        raw[ticker] = raw.get(ticker, 0.0) + pct * k401_w
+
+    total_weight = sum(raw.values())
+    if not total_weight:
+        return None
+
+    blended = 0.0
+    resolved_weight = 0.0
+    for ticker, weight in raw.items():
+        ret = None
+        for source in [DATA_FILES["STOCKS"], DATA_FILES["BONDS"]]:
+            try:
+                fund = get_fund_by_ticker(source, ticker)
+                ret  = fund.get("projected_annual_return_pct")
+                if ret is not None:
+                    break
+            except (ValueError, KeyError):
+                continue
+        if ret is not None:
+            blended         += (weight / total_weight) * float(ret)
+            resolved_weight += weight / total_weight
+
+    if resolved_weight <= 0:
+        return None
+
+    # Scale up if some tickers had no data (use resolved weight as denominator)
+    return round(blended / resolved_weight, 3) if resolved_weight > 0 else None
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def get_benchmark_comparison(username: str, year: int) -> dict:
@@ -360,6 +425,9 @@ def get_benchmark_comparison(username: str, year: int) -> dict:
 
     profile = load_user_profile(username)
     cache   = _load_cache()
+
+    # ── Plan-assumed blended return (the straight-line "rate of fit") ───────────
+    plan_return_pct = _blended_projected_return_pct(profile, year)
 
     # ── User portfolio ────────────────────────────────────────────────────────
     user_weights = _user_proxy_weights(profile, year)
@@ -435,7 +503,8 @@ def get_benchmark_comparison(username: str, year: int) -> dict:
                 f"{t} {round(w * 100, 0):.0f}%"
                 for t, w in user_weights.items()
             ),
-            "annual_return_pct": user_return,
+            "annual_return_pct":          user_return,
+            "plan_projected_return_pct":  plan_return_pct,
         },
         "boglehead": {
             "label":            "Boglehead 3-Fund (VTI / VXUS / BND)",
