@@ -1477,7 +1477,7 @@ function _renderBenchmarkPanel(year, data) {
     const planLabel = planReturnPct !== null ? ` · Plan assumes ${planReturnPct.toFixed(1)}%/yr` : '';
     const chartHtml = `
         <div class="benchmark-chart-title">
-            Normalized Growth — ${year} &nbsp;(Base = $100 on Jan 1${planLabel})
+            Normalized Growth — ${year} &nbsp;(Base = $100${planLabel})
         </div>
         <div class="benchmark-chart-wrapper">
             <canvas id="${canvasId}"></canvas>
@@ -1562,22 +1562,22 @@ function _renderBenchmarkPanel(year, data) {
     const bogNorm   = (bog.normalized   || []).map(v => (v !== null && v !== undefined) ? v : null);
     const f2060Norm = (f2060.normalized || []).map(v => (v !== null && v !== undefined) ? v : null);
 
-    // 14 points: "Jan 1" baseline + one end-of-month close per month + "Dec 31" spacer.
-    // The trailing "Dec 31" tick has null data so December's dot sits inside the chart
-    // rather than on the right boundary, making it clear Dec is a completed month.
-    const labels    = ['Jan 1', ...months, 'Dec 31'];
-    const userData  = [100, ...userNorm,  null];
-    const bogData   = [100, ...bogNorm,   null];
-    const f2060Data = [100, ...f2060Norm, null];
+    // 12 points: one end-of-month close per month, Jan–Dec.
+    // x-axis offset:true adds natural half-step padding on both sides so
+    // the Dec dot doesn't sit hard against the right edge.
+    const labels    = months;
+    const userData  = userNorm;
+    const bogData   = bogNorm;
+    const f2060Data = f2060Norm;
 
     // ── Projected "line of fit" ─────────────────────────────────────────────
     // Build a smooth compound-growth curve using the user's plan assumed return.
-    // 14 points matching labels above (null at the trailing Dec 31 spacer).
+    // 12 points (month-end compound growth Jan through Dec).
     const projectedFitData = planReturnPct !== null
-        ? [100, ...months.map((_, i) => {
+        ? months.map((_, i) => {
               const monthlyRate = Math.pow(1 + planReturnPct / 100, 1 / 12) - 1;
               return parseFloat((100 * Math.pow(1 + monthlyRate, i + 1)).toFixed(4));
-          }), null]
+          })
         : null;
 
     _benchmarkCharts[cacheKey] = new Chart(canvas, {
@@ -1673,8 +1673,9 @@ function _renderBenchmarkPanel(year, data) {
             },
             scales: {
                 x: {
-                    grid:  { color: 'rgba(0,0,0,0.04)' },
-                    ticks: { font: { size: 10 }, color: '#6A7791' },
+                    offset: true,
+                    grid:   { color: 'rgba(0,0,0,0.04)' },
+                    ticks:  { font: { size: 10 }, color: '#6A7791' },
                 },
                 y: {
                     grid: { color: 'rgba(0,0,0,0.06)' },
@@ -1685,7 +1686,7 @@ function _renderBenchmarkPanel(year, data) {
                     },
                     title: {
                         display: true,
-                        text:    'Growth of $100 (Jan 1 baseline)',
+                        text:    'Growth of $100 invested Jan 1',
                         color:   '#6A7791',
                         font:    { size: 10 },
                     },
