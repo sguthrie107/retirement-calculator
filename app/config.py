@@ -1,19 +1,29 @@
-"""Application configuration."""
+"""Application configuration for runtime and local development."""
 import os
 from pathlib import Path
 
-# Database
-# Railway provides DATABASE_URL as postgres://, but SQLAlchemy requires postgresql://
-_raw_db_url = os.getenv("DATABASE_URL", "sqlite:///retirement.db")
-DATABASE_URL = _raw_db_url.replace("postgres://", "postgresql://", 1)
 
-# Security
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
-DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+def _normalize_database_url(default_url: str) -> str:
+    """Normalize Railway-style Postgres URLs for SQLAlchemy."""
+    raw_url = os.getenv("DATABASE_URL", default_url)
+    return raw_url.replace("postgres://", "postgresql://", 1)
 
-# CORS
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000").split(",")
 
-# Paths
-BASE_DIR = Path(__file__).parent.parent
+def _get_bool(name: str, default: str = "false") -> bool:
+    """Return a boolean environment flag."""
+    return os.getenv(name, default).strip().lower() == "true"
+
+
+def _get_origins(default: str) -> list[str]:
+    """Return a normalized list of CORS origins."""
+    value = os.getenv("ALLOWED_ORIGINS", default)
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+
+DATABASE_URL = _normalize_database_url("sqlite:///retirement.db")
+SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
+DEBUG = _get_bool("DEBUG")
+ALLOWED_ORIGINS = _get_origins("http://localhost:8000")

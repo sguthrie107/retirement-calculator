@@ -1445,8 +1445,12 @@ def run_joint_stress_test(
     composite_name = _joint_db_username(usernames)
     db_joint_user = db.query(User).filter(User.name == composite_name).first()
     if not db_joint_user:
-        from datetime import datetime
-        db_joint_user = User(name=composite_name, created_at=datetime.utcnow().isoformat())
+        from datetime import datetime, timezone
+
+        db_joint_user = User(
+            name=composite_name,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
         db.add(db_joint_user)
         db.commit()
         db.refresh(db_joint_user)

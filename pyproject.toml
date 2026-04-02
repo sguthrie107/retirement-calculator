@@ -21,3 +21,6 @@ packages = ["lib"]
 # Make the project root importable so `lib` and `app` can be imported
 # without a manual sys.path.insert or requiring `pip install -e .`.
 pythonpath = ["."]
+filterwarnings = [
+    'ignore:.*asyncio\.iscoroutinefunction.*:DeprecationWarning',
+]

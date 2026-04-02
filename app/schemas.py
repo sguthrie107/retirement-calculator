@@ -1,5 +1,5 @@
 """Pydantic models for request/response validation."""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal, Optional
 
 # Supported account types.  Add new types here and in the models.py
@@ -20,15 +20,14 @@ class BalanceUpdate(BaseModel):
 
 
 class BalanceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     account_id: int
     year: int
     balance: float
     notes: Optional[str]
     recorded_at: str
-
-    class Config:
-        from_attributes = True
 
 
 class ProjectionPoint(BaseModel):

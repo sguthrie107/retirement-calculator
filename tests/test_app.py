@@ -1,35 +1,23 @@
-"""Tests for the retirement-calculator web application.
-
-Covers:
-  - Input sanitization helpers
-  - Balance CRUD routes (create, read, update, delete + XSS escaping)
-  - Auth enforcement (editor vs non-editor via is_editor)
-  - Pydantic schema validation (negative balance, invalid account type)
-  - Security headers on every response
-  - Health check
-"""
-import pytest
+"""Tests for the retirement-calculator web application."""
+import base64
 from unittest.mock import patch
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import create_app
+from app import auth as auth_module
 from app.database import get_db
+from app.main import create_app
 from app.models import Base, User
 from app.sanitize import sanitize_name, sanitize_notes
 
 
-# ── Fixtures ────────────────────────────────────────────────────────────────
-
 @pytest.fixture(scope="module")
 def _db_session_factory():
-    """In-memory SQLite engine + session factory shared for the module.
-
-    Uses StaticPool so every session shares the same underlying connection,
-    keeping tables alive across separate ``get_db`` calls.
-    """
+    """Return an in-memory SQLite session factory shared across tests."""
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -38,7 +26,6 @@ def _db_session_factory():
     Base.metadata.create_all(bind=engine)
     factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    # Seed one user so balance routes have someone to work with
     db = factory()
     db.add(User(name="Steven"))
     db.commit()
@@ -49,12 +36,7 @@ def _db_session_factory():
 
 @pytest.fixture(scope="module")
 def client(_db_session_factory):
-    """TestClient wired to the in-memory DB.
-
-    Because TestClient connects via localhost the auth middleware sets the
-    user to ``local_dev`` which is an editor — write routes work without
-    needing explicit auth headers.
-    """
+    """Return a localhost client with local-dev auth bypass enabled."""
     application = create_app()
 
     def _override():
@@ -66,17 +48,13 @@ def client(_db_session_factory):
 
     application.dependency_overrides[get_db] = _override
 
-    with TestClient(application, base_url="http://localhost") as c:
-        yield c
+    with TestClient(application, base_url="http://localhost") as test_client:
+        yield test_client
 
 
 @pytest.fixture(scope="module")
 def readonly_client(_db_session_factory):
-    """TestClient that simulates a non-editor (guest) user.
-
-    Patches ``is_editor`` to always return False so write routes get 403.
-    Uses localhost so the middleware doesn't block with 401 first.
-    """
+    """Return a localhost client for non-editor route checks."""
     application = create_app()
 
     def _override():
@@ -88,11 +66,32 @@ def readonly_client(_db_session_factory):
 
     application.dependency_overrides[get_db] = _override
 
-    with TestClient(application, base_url="http://localhost") as c:
-        yield c
+    with TestClient(application, base_url="http://localhost") as test_client:
+        yield test_client
 
 
-# ── Sanitize unit tests ────────────────────────────────────────────────────
+@pytest.fixture
+def remote_client(_db_session_factory):
+    """Return a non-local client so authentication middleware is fully enforced."""
+    application = create_app()
+
+    def _override():
+        db = _db_session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    application.dependency_overrides[get_db] = _override
+
+    with TestClient(application, base_url="http://example.com") as test_client:
+        yield test_client
+
+
+def _basic_auth(username: str, password: str) -> dict[str, str]:
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
+
 
 class TestSanitizeName:
     def test_valid_name(self):
@@ -147,57 +146,55 @@ class TestSanitizeNotes:
         assert sanitize_notes("   ") is None
 
 
-# ── Balance CRUD (local_dev = editor) ───────────────────────────────────────
-
 class TestBalanceRoutes:
     def test_create_balance(self, client):
-        resp = client.post(
+        response = client.post(
             "/api/balances/Steven",
             json={"account_type": "401k", "year": 2026, "balance": 50000.0, "notes": "initial"},
         )
-        assert resp.status_code == 201
-        data = resp.json()
+        assert response.status_code == 201
+        data = response.json()
         assert data["year"] == 2026
         assert data["balance"] == 50000.0
         assert data["notes"] == "initial"
 
     def test_get_balances(self, client):
-        resp = client.get("/api/balances/Steven")
-        assert resp.status_code == 200
-        items = resp.json()
+        response = client.get("/api/balances/Steven")
+        assert response.status_code == 200
+        items = response.json()
         assert isinstance(items, list)
         assert len(items) >= 1
 
     def test_get_balances_unknown_user_returns_empty(self, client):
-        resp = client.get("/api/balances/NobodyHere")
-        assert resp.status_code == 200
-        assert resp.json() == []
+        response = client.get("/api/balances/NobodyHere")
+        assert response.status_code == 200
+        assert response.json() == []
 
     def test_update_balance(self, client):
         balances = client.get("/api/balances/Steven").json()
-        bid = balances[0]["id"]
-        resp = client.put(f"/api/balances/{bid}", json={"balance": 55000.0})
-        assert resp.status_code == 200
-        assert resp.json()["balance"] == 55000.0
+        balance_id = balances[0]["id"]
+        response = client.put(f"/api/balances/{balance_id}", json={"balance": 55000.0})
+        assert response.status_code == 200
+        assert response.json()["balance"] == 55000.0
 
     def test_delete_balance(self, client):
-        create_resp = client.post(
+        create_response = client.post(
             "/api/balances/Steven",
             json={"account_type": "roth_ira", "year": 2025, "balance": 1000.0},
         )
-        bid = create_resp.json()["id"]
-        resp = client.delete(f"/api/balances/{bid}")
-        assert resp.status_code == 204
+        balance_id = create_response.json()["id"]
+        response = client.delete(f"/api/balances/{balance_id}")
+        assert response.status_code == 204
 
     def test_duplicate_year_account_returns_409(self, client):
-        resp = client.post(
+        response = client.post(
             "/api/balances/Steven",
             json={"account_type": "401k", "year": 2026, "balance": 60000.0},
         )
-        assert resp.status_code == 409
+        assert response.status_code == 409
 
     def test_xss_in_notes_is_escaped(self, client):
-        resp = client.post(
+        response = client.post(
             "/api/balances/Steven",
             json={
                 "account_type": "roth_ira",
@@ -206,84 +203,121 @@ class TestBalanceRoutes:
                 "notes": '<img src=x onerror=alert(1)>',
             },
         )
-        assert resp.status_code == 201
-        notes = resp.json()["notes"]
+        assert response.status_code == 201
+        notes = response.json()["notes"]
         assert "<img" not in notes
         assert "&lt;img" in notes
 
     def test_update_nonexistent_returns_404(self, client):
-        resp = client.put("/api/balances/999999", json={"balance": 1.0})
-        assert resp.status_code == 404
+        response = client.put("/api/balances/999999", json={"balance": 1.0})
+        assert response.status_code == 404
 
     def test_delete_nonexistent_returns_404(self, client):
-        resp = client.delete("/api/balances/999999")
-        assert resp.status_code == 404
+        response = client.delete("/api/balances/999999")
+        assert response.status_code == 404
 
-
-# ── Schema validation (Pydantic rejects before route logic) ────────────────
 
 class TestSchemaValidation:
     def test_negative_balance_rejected(self, client):
-        resp = client.post(
+        response = client.post(
             "/api/balances/Steven",
             json={"account_type": "401k", "year": 2080, "balance": -100.0},
         )
-        assert resp.status_code == 422
+        assert response.status_code == 422
 
     def test_invalid_account_type_rejected(self, client):
-        resp = client.post(
+        response = client.post(
             "/api/balances/Steven",
             json={"account_type": "crypto", "year": 2080, "balance": 100.0},
         )
-        assert resp.status_code == 422
+        assert response.status_code == 422
 
     def test_year_out_of_range_rejected(self, client):
-        resp = client.post(
+        response = client.post(
             "/api/balances/Steven",
             json={"account_type": "401k", "year": 1999, "balance": 100.0},
         )
-        assert resp.status_code == 422
+        assert response.status_code == 422
 
     def test_missing_required_fields_rejected(self, client):
-        resp = client.post("/api/balances/Steven", json={})
-        assert resp.status_code == 422
+        response = client.post("/api/balances/Steven", json={})
+        assert response.status_code == 422
 
-
-# ── Auth enforcement ────────────────────────────────────────────────────────
 
 class TestAuthEnforcement:
-    """Patches ``is_editor`` to simulate a non-editor hitting write routes."""
-
     def test_create_blocked_for_non_editor(self, readonly_client):
         with patch("app.routes.balances.is_editor", return_value=False):
-            resp = readonly_client.post(
+            response = readonly_client.post(
                 "/api/balances/Steven",
                 json={"account_type": "401k", "year": 2090, "balance": 100.0},
             )
-        assert resp.status_code == 403
+        assert response.status_code == 403
 
     def test_update_blocked_for_non_editor(self, readonly_client):
         with patch("app.routes.balances.is_editor", return_value=False):
-            resp = readonly_client.put("/api/balances/1", json={"balance": 1.0})
-        assert resp.status_code == 403
+            response = readonly_client.put("/api/balances/1", json={"balance": 1.0})
+        assert response.status_code == 403
 
     def test_delete_blocked_for_non_editor(self, readonly_client):
         with patch("app.routes.balances.is_editor", return_value=False):
-            resp = readonly_client.delete("/api/balances/1")
-        assert resp.status_code == 403
+            response = readonly_client.delete("/api/balances/1")
+        assert response.status_code == 403
 
     def test_read_allowed_for_non_editor(self, readonly_client):
         with patch("app.routes.balances.is_editor", return_value=False):
-            resp = readonly_client.get("/api/balances/Steven")
-        assert resp.status_code == 200
+            response = readonly_client.get("/api/balances/Steven")
+        assert response.status_code == 200
 
 
-# ── Security headers ───────────────────────────────────────────────────────
+class TestAuthHardening:
+    def test_lockout_after_repeated_failed_attempts(self, remote_client, monkeypatch):
+        monkeypatch.setitem(auth_module._USERS, "steven", "correct-password")
+        monkeypatch.setitem(auth_module._USERS, "alyssa", "")
+        monkeypatch.setitem(auth_module._USERS, "guest", "")
+        monkeypatch.setattr(auth_module, "_MAX_FAILED_ATTEMPTS", 2)
+        monkeypatch.setattr(auth_module, "_FAILED_WINDOW_SECONDS", 300)
+        monkeypatch.setattr(auth_module, "_LOCKOUT_SECONDS", 60)
+        auth_module._FAILED_ATTEMPTS_BY_IP.clear()
+        auth_module._LOCKED_UNTIL_BY_IP.clear()
+
+        bad_headers = _basic_auth("steven", "wrong-password")
+
+        first = remote_client.get("/api/balances/Steven", headers=bad_headers)
+        second = remote_client.get("/api/balances/Steven", headers=bad_headers)
+        third = remote_client.get("/api/balances/Steven", headers=bad_headers)
+
+        assert first.status_code == 401
+        assert second.status_code == 401
+        assert third.status_code == 429
+        assert third.headers.get("Retry-After") is not None
+
+    def test_successful_login_clears_failure_state(self, remote_client, monkeypatch):
+        monkeypatch.setitem(auth_module._USERS, "steven", "correct-password")
+        monkeypatch.setitem(auth_module._USERS, "alyssa", "")
+        monkeypatch.setitem(auth_module._USERS, "guest", "")
+        monkeypatch.setattr(auth_module, "_MAX_FAILED_ATTEMPTS", 3)
+        monkeypatch.setattr(auth_module, "_FAILED_WINDOW_SECONDS", 300)
+        monkeypatch.setattr(auth_module, "_LOCKOUT_SECONDS", 60)
+        auth_module._FAILED_ATTEMPTS_BY_IP.clear()
+        auth_module._LOCKED_UNTIL_BY_IP.clear()
+
+        bad_headers = _basic_auth("steven", "wrong-password")
+        good_headers = _basic_auth("steven", "correct-password")
+
+        bad = remote_client.get("/api/balances/Steven", headers=bad_headers)
+        good = remote_client.get("/api/balances/Steven", headers=good_headers)
+        bad_again = remote_client.get("/api/balances/Steven", headers=bad_headers)
+
+        assert bad.status_code == 401
+        assert good.status_code == 200
+        assert bad_again.status_code == 401
+        assert not auth_module._LOCKED_UNTIL_BY_IP
+
 
 class TestSecurityHeaders:
     def test_csp_present(self, client):
-        resp = client.get("/health")
-        csp = resp.headers.get("Content-Security-Policy", "")
+        response = client.get("/health")
+        csp = response.headers.get("Content-Security-Policy", "")
         assert "default-src 'self'" in csp
         assert "frame-ancestors 'none'" in csp
 
@@ -298,17 +332,15 @@ class TestSecurityHeaders:
         assert "max-age=" in hsts
 
     def test_referrer_policy(self, client):
-        rp = client.get("/health").headers.get("Referrer-Policy", "")
-        assert "strict-origin" in rp
+        referrer_policy = client.get("/health").headers.get("Referrer-Policy", "")
+        assert "strict-origin" in referrer_policy
 
     def test_permissions_policy(self, client):
-        pp = client.get("/health").headers.get("Permissions-Policy", "")
-        assert "camera=()" in pp
+        permissions_policy = client.get("/health").headers.get("Permissions-Policy", "")
+        assert "camera=()" in permissions_policy
 
-
-# ── Health check ────────────────────────────────────────────────────────────
 
 def test_health_check(client):
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

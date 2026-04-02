@@ -1,8 +1,9 @@
 """Balance management routes."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import User, Account, ActualBalance
@@ -123,8 +124,6 @@ async def update_balance(
     if not is_editor(user):
         raise HTTPException(status_code=403, detail="Only Steven and Alyssa can update balances")
 
-    from datetime import datetime
-    
     balance = db.query(ActualBalance).filter(ActualBalance.id == balance_id).first()
     if not balance:
         raise HTTPException(status_code=404, detail="Balance not found")
@@ -134,7 +133,7 @@ async def update_balance(
     if balance_data.notes is not None:
         balance.notes = sanitize_notes(balance_data.notes)
     if balance_changed:
-        balance.recorded_at = datetime.utcnow().isoformat()
+        balance.recorded_at = datetime.now(timezone.utc).isoformat()
     
     db.commit()
     db.refresh(balance)

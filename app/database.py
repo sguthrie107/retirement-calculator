@@ -1,11 +1,12 @@
 """Database configuration and session management."""
-import logging
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from typing import Generator
 import json
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
+from typing import Generator
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from .config import DATABASE_URL
 from .models import Base, User, Account, ActualBalance
@@ -82,7 +83,7 @@ def seed_default_users():
                             year=year,
                             balance=float(seeded_balance),
                             notes="Seeded from users.json chart_seed.actual_balances",
-                            recorded_at=datetime.utcnow().isoformat(),
+                            recorded_at=datetime.now(timezone.utc).isoformat(),
                         )
                     )
         
