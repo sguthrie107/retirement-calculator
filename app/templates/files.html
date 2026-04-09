@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block title %}File Vault — Retirement Dashboard{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* ── Page wrapper ── */
+    .files-page {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding-bottom: 3rem;
+    }
+
+    /* ── Page header row ── */
+    .files-page-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .files-page-header h2 { font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.2rem; }
+    .files-page-header p  { color: var(--text-secondary); font-size: 0.92rem; }
+    .back-link { font-size: 0.85rem; color: var(--primary-color); text-decoration: none; font-weight: 600; }
+    .back-link:hover { text-decoration: underline; }
+
+    /* ── Upload section (collapsible) ── */
+    .upload-section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+    .upload-section-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.4rem;
+        cursor: pointer;
+        user-select: none;
+        gap: 1rem;
+    }
+    .upload-section-toggle h3 { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0; }
+    .upload-toggle-hint { font-size: 0.82rem; color: var(--text-muted); }
+    .upload-chevron { font-size: 0.85rem; color: var(--text-muted); transition: transform 0.2s ease; flex-shrink: 0; }
+    .upload-chevron.open { transform: rotate(180deg); }
+    .upload-form-body { border-top: 1px solid var(--border); padding: 1.4rem 1.6rem 1.6rem; display: none; }
+    .upload-form-body.visible { display: block; }
+
+    /* ── Form grid ── */
+    .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1.4rem; }
+    @media (max-width: 640px) { .upload-grid { grid-template-columns: 1fr; } }
+    .form-field { display: flex; flex-direction: column; gap: 0.35rem; }
+    .form-field.col-span-2 { grid-column: 1 / -1; }
+    .form-field label { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+    .form-field input[type="text"], .form-field select {
+        padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: 10px;
+        font-size: 0.9rem; font-family: inherit; background: var(--background); color: var(--text-primary);
+    }
+    .form-field input[type="text"]:focus, .form-field select:focus {
+        outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(200,164,77,.18);
+    }
+    .form-field input[type="file"] {
+        padding: 0.45rem 0.6rem; border: 1px dashed var(--trim-color); border-radius: 10px;
+        font-size: 0.88rem; font-family: inherit; background: var(--background); color: var(--text-primary); cursor: pointer; width: 100%;
+    }
+    .form-field .field-hint { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.1rem; }
+    .upload-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 1rem; padding-top: 0.4rem; flex-wrap: wrap; }
+
+    /* ── Vault section ── */
+    .vault-section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        padding: 1.5rem 1.75rem;
+        margin-bottom: 1.25rem;
+    }
+    .vault-section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--trim-soft); }
+    .vault-section-header h3 { font-size: 1rem; font-weight: 700; color: var(--primary-color); margin: 0; text-transform: uppercase; letter-spacing: 0.06em; }
+    .vault-count-badge { background: var(--primary-color); color: #F8F5EE; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; }
+
+    /* ── File table ── */
+    .file-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    .file-table th { background: var(--primary-color); color: #F8F5EE; text-align: left; padding: 0.6rem 0.9rem; font-weight: 600; font-size: 0.8rem; letter-spacing: 0.03em; }
+    .file-table th:first-child { border-radius: 8px 0 0 0; }
+    .file-table th:last-child  { border-radius: 0 8px 0 0; }
+    .file-table td { padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text-primary); }
+    .file-table tbody tr:nth-child(odd)  td { background: #F7F4ED; }
+    .file-table tbody tr:nth-child(even) td { background: rgba(31,58,138,.05); }
+    .file-table tbody tr:hover           td { background: rgba(31,58,138,.11) !important; }
+    .file-title      { font-weight: 700; color: var(--text-primary); display: block; margin-bottom: 0.1rem; }
+    .file-name-sub   { font-size: 0.78rem; color: var(--text-muted); display: block; }
+    .file-download-link { color: var(--primary-color); text-decoration: none; }
+    .file-download-link:hover { text-decoration: underline; }
+    .file-desc-cell  { color: var(--text-secondary); font-size: 0.83rem; max-width: 240px; }
+    .file-type-icon  { font-size: 1.1rem; line-height: 1; }
+    .btn-delete {
+        background: none; border: 1px solid #fca5a5; color: #dc2626;
+        padding: 0.28rem 0.7rem; border-radius: 7px; font-size: 0.78rem;
+        font-family: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .btn-delete:hover { background: #fee2e2; }
+    .empty-vault { text-align: center; padding: 3.5rem 1rem; color: var(--text-muted); }
+    .empty-vault .empty-icon { font-size: 3.5rem; display: block; margin-bottom: 0.9rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="files-page">
+
+    <!-- Page header -->
+    <div class="files-page-header">
+        <div>
+            <h2>📁 File Vault</h2>
+            <p>Securely store retirement, estate, will, and other important documents.
+                {% if total_count > 0 %}&nbsp;·&nbsp;<strong>{{ total_count }}</strong> file{{ "s" if total_count != 1 else "" }} stored.{% endif %}
+            </p>
+        </div>
+        <a href="/" class="back-link">← Dashboard</a>
+    </div>
+
+    <!-- Upload section -->
+    <div class="upload-section">
+        <div class="upload-section-toggle" onclick="toggleUploadForm()" id="uploadToggle">
+            <div>
+                <h3>⬆ Upload a Document</h3>
+                <span class="upload-toggle-hint">PDF, Word, Excel, images &nbsp;·&nbsp; max 25 MB</span>
+            </div>
+            <span class="upload-chevron" id="uploadChevron">▼</span>
+        </div>
+        <div class="upload-form-body" id="uploadFormBody">
+            <form action="/files/upload" method="post" enctype="multipart/form-data">
+                <div class="upload-grid">
+
+                    <div class="form-field col-span-2">
+                        <label for="titleInput">Document Title <span style="color:#dc2626;">*</span></label>
+                        <input type="text" id="titleInput" name="title"
+                            placeholder="e.g. Steven's Living Will 2025"
+                            maxlength="150" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="fileInput">File <span style="color:#dc2626;">*</span></label>
+                        <input type="file" id="fileInput" name="file"
+                            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.pptx,.ppt" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="categorySelect">Category</label>
+                        <select id="categorySelect" name="category">
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-field col-span-2">
+                        <label for="descriptionInput">Notes (optional)</label>
+                        <input type="text" id="descriptionInput" name="description"
+                            placeholder="e.g. Signed and notarized, stored with attorney"
+                            maxlength="200">
+                        <span class="field-hint">Any context that helps you remember what this file is later.</span>
+                    </div>
+
+                    <div class="upload-actions">
+                        <button type="submit" class="btn-primary">Upload Document</button>
+                    </div>
+
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- File list -->
+    {% if grouped_files %}
+        {% for category, files in grouped_files.items() %}
+        <div class="vault-section">
+            <div class="vault-section-header">
+                <h3>{{ category }}</h3>
+                <span class="vault-count-badge">{{ files | length }}</span>
+            </div>
+            <table class="file-table">
+                <thead>
+                    <tr>
+                        <th style="width:2.2rem;"></th>
+                        <th>Title / File</th>
+                        <th>Notes</th>
+                        <th>Size</th>
+                        <th>Uploaded</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in files %}
+                    <tr>
+                        <td style="text-align:center;">
+                            <span class="file-type-icon">
+                            {% if '.pdf' in f.original_filename.lower() %}📄
+                            {% elif '.doc' in f.original_filename.lower() %}📝
+                            {% elif '.xls' in f.original_filename.lower() or '.csv' in f.original_filename.lower() %}📊
+                            {% elif f.mime_type and 'image' in f.mime_type %}🖼️
+                            {% else %}📎
+                            {% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <a class="file-download-link" href="/files/{{ f.id }}/download">
+                                <span class="file-title">{{ f.title }}</span>
+                                <span class="file-name-sub">{{ f.original_filename }}</span>
+                            </a>
+                        </td>
+                        <td class="file-desc-cell">{{ f.description }}</td>
+                        <td style="white-space:nowrap; color:var(--text-secondary);">{{ f.file_size }}</td>
+                        <td style="white-space:nowrap; color:var(--text-muted); font-size:0.83rem;">{{ f.uploaded_at }}</td>
+                        <td>
+                            <form action="/files/{{ f.id }}/delete" method="post"
+                                  onsubmit="return confirm('Delete &quot;{{ f.title }}&quot;?')">
+                                <button type="submit" class="btn-delete">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="vault-section">
+            <div class="empty-vault">
+                <span class="empty-icon">🗄️</span>
+                <p>No documents uploaded yet.<br>Click <strong>⬆ Upload a Document</strong> above to add your first file.</p>
+            </div>
+        </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleUploadForm() {
+        const body    = document.getElementById('uploadFormBody');
+        const chevron = document.getElementById('uploadChevron');
+        const isOpen  = body.classList.toggle('visible');
+        chevron.classList.toggle('open', isOpen);
+    }
+    // Auto-open the upload form when there are no files yet
+    {% if total_count == 0 %}
+    toggleUploadForm();
+    {% endif %}
+</script>
+{% endblock %}

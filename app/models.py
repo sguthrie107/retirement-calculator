@@ -4,6 +4,9 @@ from sqlalchemy.orm import relationship, DeclarativeBase
 from datetime import datetime, timezone
 
 
+
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -86,3 +89,17 @@ class StressTestResult(Base):
         CheckConstraint("success_probability_pct >= 0 AND success_probability_pct <= 100", name="ck_stress_success_probability_range"),
         CheckConstraint("rating_tier >= 1 AND rating_tier <= 5", name="ck_stress_rating_tier_range"),
     )
+
+
+class UploadedFile(Base):
+    __tablename__ = "uploaded_files"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String, nullable=False)  # user-provided display name
+    original_filename = Column(String, nullable=False)
+    stored_filename = Column(String, nullable=False, unique=True)
+    category = Column(String, nullable=False, default="Other")
+    description = Column(String)
+    file_size = Column(Integer, nullable=False)  # bytes
+    mime_type = Column(String)
+    uploaded_at = Column(String, nullable=False, default=lambda: datetime.now(timezone.utc).isoformat())

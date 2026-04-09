@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from .auth import BasicAuthMiddleware
 from .database import init_db
 from .limiter import limiter
-from .routes import balances, benchmark, dashboard, holdings, projections, stress_test
+from .routes import balances, benchmark, dashboard, files, holdings, projections, stress_test
 from .security_headers import SecurityHeadersMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(balances.router, tags=["balances"])
     app.include_router(stress_test.router, tags=["stress-test"])
     app.include_router(benchmark.router, tags=["benchmark"])
+    app.include_router(files.router, tags=["files"])
 
     @app.get("/health", include_in_schema=False)
     def health_check():
