@@ -9,19 +9,16 @@
         border-bottom: 2px solid #162C6D !important;
     }
 
-    #deltaContent .performance-comparison-table tbody tr:nth-child(odd),
-    #deltaContent .performance-comparison-table tbody tr:nth-child(odd) td {
+    #deltaContent .performance-comparison-table tbody tr.comparison-row-odd td {
         background: #F7F4ED !important;
     }
 
-    #deltaContent .performance-comparison-table tbody tr:nth-child(even),
-    #deltaContent .performance-comparison-table tbody tr:nth-child(even) td {
-        background: rgba(31, 58, 138, 0.12) !important;
+    #deltaContent .performance-comparison-table tbody tr.comparison-row-even td {
+        background: rgba(31, 58, 138, 0.09) !important;
     }
 
-    #deltaContent .performance-comparison-table tbody tr:hover,
-    #deltaContent .performance-comparison-table tbody tr:hover td {
-        background: rgba(31, 58, 138, 0.2) !important;
+    #deltaContent .performance-comparison-table tbody tr.comparison-data-row:hover td {
+        background: rgba(31, 58, 138, 0.15) !important;
     }
 </style>
 {% endblock %}

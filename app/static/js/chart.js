@@ -1323,7 +1323,8 @@ function renderDeltaTable(deltas) {
         console.log(`Delta ${idx} - year: ${delta.year}, balance_ids:`, delta.balance_ids, 'balanceIdStr:', balanceIdStr);
         
         // ── Data row ──────────────────────────────────────────────────────────
-        html += '<tr>';
+        const stripeClass = idx % 2 === 0 ? 'comparison-row-odd' : 'comparison-row-even';
+        html += `<tr class="comparison-data-row ${stripeClass}">`;
         html += `<td><strong>${delta.year}</strong></td>`;
         html += `<td>${hasProjected ? formatCurrency(delta.projected) : '—'}</td>`;
         html += `<td>${formatCurrency(delta.actual)}</td>`;

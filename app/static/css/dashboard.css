@@ -811,16 +811,16 @@ table tr:last-child td:last-child {
     border-bottom: 2px solid var(--primary-hover);
 }
 
-#deltaContent .performance-comparison-table tbody tr:nth-child(odd) {
-    background: rgba(31, 58, 138, 0.08);
+#deltaContent .performance-comparison-table tbody tr.comparison-row-odd td {
+    background: #F7F4ED;
 }
 
-#deltaContent .performance-comparison-table tbody tr:nth-child(even) {
-    background: rgba(31, 58, 138, 0.14);
+#deltaContent .performance-comparison-table tbody tr.comparison-row-even td {
+    background: rgba(31, 58, 138, 0.09);
 }
 
-#deltaContent .performance-comparison-table tbody tr:hover {
-    background: rgba(31, 58, 138, 0.2);
+#deltaContent .performance-comparison-table tbody tr.comparison-data-row:hover td {
+    background: rgba(31, 58, 138, 0.15);
 }
 
 .positive {
