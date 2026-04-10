@@ -73,8 +73,11 @@ async def files_page(request: Request, db: Session = Depends(get_db)):
             "uploaded_at": f.uploaded_at[:10],  # date portion only
         })
 
-    # Remove empty categories and convert to list of tuples for Jinja2
-    grouped_list = [(k, v) for k, v in grouped.items() if v]
+    # Remove empty categories and convert to simple list of dicts
+    grouped_list = [
+        {"category": k, "files": v}
+        for k, v in grouped.items() if v
+    ]
 
     return templates.TemplateResponse("files.html", {
         "request": request,
