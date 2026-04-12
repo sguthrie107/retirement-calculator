@@ -45,6 +45,15 @@ SOCIAL_SECURITY_MAX_TAXABLE_EARNINGS = 176100.0
 SOCIAL_SECURITY_BEND_POINT_1 = 1174.0
 SOCIAL_SECURITY_BEND_POINT_2 = 7078.0
 DEFAULT_INTRA_PORTFOLIO_CORRELATION = 0.90
+DEFAULT_401K_CONTRIBUTION_LIMIT = 23500.0
+DEFAULT_401K_CATCH_UP_AGE = 50
+DEFAULT_401K_CATCH_UP_LIMIT = 7500.0
+DEFAULT_401K_ENHANCED_CATCH_UP_START_AGE = 60
+DEFAULT_401K_ENHANCED_CATCH_UP_END_AGE = 63
+DEFAULT_401K_ENHANCED_CATCH_UP_LIMIT = 11250.0
+DEFAULT_IRA_CONTRIBUTION_LIMIT = 7000.0
+DEFAULT_IRA_CATCH_UP_AGE = 50
+DEFAULT_IRA_CATCH_UP_LIMIT = 1000.0
 
 BOND_LIKE_TICKERS = {
     "FXNAX",
@@ -235,6 +244,46 @@ def _load_household_retirement_spending_for_users(usernames: list[str]) -> dict[
         participants = set(config.get("participants", []))
         if participants == target:
             return config
+
+    return None
+
+
+def _load_retirement_spending_for_user(username: str) -> dict[str, Any] | None:
+    """Find the most-specific spending profile for a single user.
+
+    Priority:
+    1. An exact single-participant match (``participants == [username]``).
+    2. The first multi-participant household config that includes the user;
+       all monetary expense fields are pro-rated by the number of participants.
+
+    Returns ``None`` when no applicable config is found.
+    """
+    users_data = load_users_data()
+    spending_configs = users_data.get("household_retirement_spending", [])
+
+    # 1 — exact single-user match
+    for config in spending_configs:
+        participants = list(config.get("participants", []))
+        if participants == [username]:
+            return config
+
+    # 2 — household config that includes this user (pro-rate by share)
+    for config in spending_configs:
+        participants = list(config.get("participants", []))
+        if username in participants and len(participants) > 1:
+            n = len(participants)
+            prorated: dict[str, Any] = dict(config)
+            for key in (
+                "annual_general_living_expenses",
+                "annual_medical_quality_of_life_expenses",
+            ):
+                if key in prorated:
+                    prorated[key] = float(prorated[key]) / n
+            prorated["_prorated_note"] = (
+                f"Pro-rated 1/{n} individual share of household spending "
+                f"(household has {n} participants)."
+            )
+            return prorated
 
     return None
 
@@ -454,6 +503,52 @@ def _draw_annual_return(mu: float, sigma: float, shock: float) -> float:
     return max(gross - 1.0, -0.95)
 
 
+WITHDRAWAL_STRATEGY_PROPORTIONAL = "proportional"
+WITHDRAWAL_STRATEGY_401K_FIRST = "401k_first"
+
+
+def _route_withdrawal(
+    withdrawal: float,
+    bal_401k: float,
+    bal_ira: float,
+    bal_income: float,
+    strategy: str,
+) -> tuple[float, float, float]:
+    """Route a withdrawal amount across account buckets.
+
+    Strategies:
+    - ``"proportional"``: Withdraw from all accounts in proportion to their
+      current balance.  Classic risk-parity-style drawdown.
+    - ``"401k_first"``: Exhaust the traditional 401k first, then the income
+      bucket, then the Roth IRA last.  This preserves Roth tax-free
+      compounding for as long as possible — the most tax-efficient ordering
+      when holding both traditional and Roth accounts simultaneously.
+
+    Returns:
+        Tuple of (withdrawal_401k, withdrawal_ira, withdrawal_income).
+    """
+    if withdrawal <= 0.0:
+        return 0.0, 0.0, 0.0
+
+    if strategy == WITHDRAWAL_STRATEGY_401K_FIRST:
+        w_401k = min(withdrawal, max(bal_401k, 0.0))
+        remaining = withdrawal - w_401k
+        w_income = min(remaining, max(bal_income, 0.0))
+        remaining -= w_income
+        w_ira = min(remaining, max(bal_ira, 0.0))
+        return w_401k, w_ira, w_income
+
+    # Default: proportional — withdraw from each account weighted by its balance.
+    total = max(bal_401k + bal_ira + bal_income, 0.0)
+    if total > 0.0:
+        return (
+            withdrawal * (max(bal_401k, 0.0) / total),
+            withdrawal * (max(bal_ira, 0.0) / total),
+            withdrawal * (max(bal_income, 0.0) / total),
+        )
+    return 0.0, 0.0, 0.0
+
+
 def _rating_for_probability(probability_pct: float) -> dict[str, Any]:
     for band in RATING_BANDS:
         if probability_pct >= band["min_probability"]:
@@ -461,25 +556,167 @@ def _rating_for_probability(probability_pct: float) -> dict[str, Any]:
     return RATING_BANDS[-1]
 
 
-def _annual_contribution(user_profile: dict[str, Any], salary: float, employee_pct_override: float | None = None) -> float:
+def _indexed_contribution_limit(base_limit: float, inflation: float, years_since_start: int) -> float:
+    if base_limit <= 0:
+        return 0.0
+    return base_limit * ((1.0 + inflation) ** max(0, years_since_start))
+
+
+def _annual_401k_employee_limit(
+    contribution_details: dict[str, Any],
+    age: int,
+    years_since_start: int,
+    inflation: float,
+) -> float:
+    base_limit = float(
+        contribution_details.get("annual_401k_contribution_limit", DEFAULT_401K_CONTRIBUTION_LIMIT)
+    )
+    catch_up_age = int(contribution_details.get("401k_catch_up_start_age", DEFAULT_401K_CATCH_UP_AGE))
+    catch_up_limit = float(
+        contribution_details.get("annual_401k_catch_up_limit", DEFAULT_401K_CATCH_UP_LIMIT)
+    )
+    enhanced_start_age = int(
+        contribution_details.get(
+            "401k_enhanced_catch_up_start_age",
+            DEFAULT_401K_ENHANCED_CATCH_UP_START_AGE,
+        )
+    )
+    enhanced_end_age = int(
+        contribution_details.get(
+            "401k_enhanced_catch_up_end_age",
+            DEFAULT_401K_ENHANCED_CATCH_UP_END_AGE,
+        )
+    )
+    enhanced_catch_up_limit = float(
+        contribution_details.get(
+            "annual_401k_enhanced_catch_up_limit",
+            DEFAULT_401K_ENHANCED_CATCH_UP_LIMIT,
+        )
+    )
+
+    limit = _indexed_contribution_limit(base_limit, inflation, years_since_start)
+    if age >= catch_up_age:
+        catch_up_to_apply = catch_up_limit
+        if enhanced_start_age <= age <= enhanced_end_age:
+            catch_up_to_apply = max(catch_up_limit, enhanced_catch_up_limit)
+        limit += _indexed_contribution_limit(catch_up_to_apply, inflation, years_since_start)
+    return max(limit, 0.0)
+
+
+def _annual_ira_limit(
+    contribution_details: dict[str, Any],
+    age: int,
+    years_since_start: int,
+    inflation: float,
+) -> float:
+    base_limit = float(
+        contribution_details.get("annual_ira_contribution_limit", DEFAULT_IRA_CONTRIBUTION_LIMIT)
+    )
+    catch_up_age = int(contribution_details.get("ira_catch_up_start_age", DEFAULT_IRA_CATCH_UP_AGE))
+    catch_up_limit = float(
+        contribution_details.get("annual_ira_catch_up_limit", DEFAULT_IRA_CATCH_UP_LIMIT)
+    )
+
+    limit = _indexed_contribution_limit(base_limit, inflation, years_since_start)
+    if age >= catch_up_age:
+        limit += _indexed_contribution_limit(catch_up_limit, inflation, years_since_start)
+    return max(limit, 0.0)
+
+
+def _annual_contribution(
+    user_profile: dict[str, Any],
+    salary: float,
+    employee_pct_override: float | None = None,
+    *,
+    age: int | None = None,
+    years_since_start: int = 0,
+    inflation: float = 0.0,
+) -> float:
     contribution = user_profile.get("contribution_details", {})
+    maximize_retirement_contributions = bool(
+        contribution.get("maximize_retirement_contributions", False)
+    )
     employee_pct = (
         float(employee_pct_override)
         if employee_pct_override is not None
         else float(contribution.get("annual_contribution_pct", 0.0))
     )
+
+    if maximize_retirement_contributions:
+        employee_contribution = max(salary, 0.0)
+    else:
+        employee_contribution = salary * employee_pct
+
+    if age is not None:
+        annual_employee_limit = _annual_401k_employee_limit(
+            contribution,
+            age,
+            years_since_start,
+            inflation,
+        )
+        employee_contribution = min(employee_contribution, annual_employee_limit)
+
     company_match_pct = float(contribution.get("company_match_pct", 0.0))
     vested_pct = float(contribution.get("company_match_vested_pct", 1.0))
+    company_match = salary * (company_match_pct * vested_pct)
 
-    return salary * (employee_pct + (company_match_pct * vested_pct))
+    return max(employee_contribution, 0.0) + max(company_match, 0.0)
 
 
-def _annual_ira_contribution(user_profile: dict[str, Any], years_since_start: int, inflation: float) -> float:
+def _annual_ira_contribution(
+    user_profile: dict[str, Any],
+    years_since_start: int,
+    inflation: float,
+    *,
+    age: int | None = None,
+) -> float:
     contribution = user_profile.get("contribution_details", {})
+    maximize_retirement_contributions = bool(
+        contribution.get("maximize_retirement_contributions", False)
+    )
     base_ira = float(contribution.get("annual_ira_contribution", 0.0))
+
+    if maximize_retirement_contributions:
+        if age is None:
+            target_ira = _indexed_contribution_limit(
+                DEFAULT_IRA_CONTRIBUTION_LIMIT,
+                inflation,
+                years_since_start,
+            )
+        else:
+            target_ira = _annual_ira_limit(contribution, age, years_since_start, inflation)
+        return max(target_ira, 0.0)
+
     if base_ira <= 0:
         return 0.0
-    return base_ira * ((1.0 + inflation) ** max(0, years_since_start))
+
+    ira_contribution = base_ira * ((1.0 + inflation) ** max(0, years_since_start))
+    if age is not None:
+        ira_contribution = min(
+            ira_contribution,
+            _annual_ira_limit(contribution, age, years_since_start, inflation),
+        )
+    return max(ira_contribution, 0.0)
+
+
+def _apply_second_career_transition(
+    salary: float,
+    age: int,
+    contribution_details: dict[str, Any],
+    transition_applied: bool,
+) -> tuple[float, bool]:
+    transition_age_raw = contribution_details.get("career_transition_age")
+    if transition_age_raw is None:
+        return salary, transition_applied
+
+    transition_age = int(transition_age_raw)
+    transition_income_pct = float(contribution_details.get("career_transition_income_pct", 1.0))
+    transition_income_pct = max(0.0, min(1.0, transition_income_pct))
+
+    if not transition_applied and age >= transition_age:
+        return salary * transition_income_pct, True
+
+    return salary, transition_applied
 
 
 def _project_peak_earnings_history(user_profile: dict[str, Any], current_age: int, retirement_age: int) -> list[float]:
@@ -605,12 +842,61 @@ def run_stress_test(
     inflation = DEFAULT_INFLATION_PCT / 100.0
     success_threshold = DEFAULT_SUCCESS_THRESHOLD_PCT / 100.0
     withdrawal_pct = float(user_profile.get("withdrawal_pct") or DEFAULT_WITHDRAWAL_PCT)
+    withdrawal_strategy = str(user_profile.get("withdrawal_order") or WITHDRAWAL_STRATEGY_PROPORTIONAL)
     social_security_claim_age = int(user_profile.get("social_security_claim_age", DEFAULT_SOCIAL_SECURITY_CLAIM_AGE))
     social_security_base_annual_income = _estimate_social_security_annual_benefit(
         user_profile,
         current_age,
         retirement_age,
         social_security_claim_age,
+    )
+
+    # --- Retirement spending-needs snapshot (static projection, not simulated) ---
+    individual_spending_config = _load_retirement_spending_for_user(username)
+    spending_base_year = (
+        int(individual_spending_config.get("base_year", current_year))
+        if individual_spending_config
+        else current_year
+    )
+    base_spending_general = (
+        float(individual_spending_config.get("annual_general_living_expenses", 0.0))
+        if individual_spending_config
+        else 0.0
+    )
+    base_spending_medical = (
+        float(individual_spending_config.get("annual_medical_quality_of_life_expenses", 0.0))
+        if individual_spending_config
+        else 0.0
+    )
+    base_spending_total = base_spending_general + base_spending_medical
+
+    retirement_year = current_year + (retirement_age - current_age)
+    years_base_to_retirement = max(0, retirement_year - spending_base_year)
+    adj_spending_at_retirement = (
+        base_spending_total * ((1.0 + inflation) ** years_base_to_retirement)
+        if base_spending_total > 0
+        else 0.0
+    )
+    # SS may not have started at retirement age (e.g. claiming at 70, retiring at 67).
+    ss_at_retirement_age = (
+        social_security_base_annual_income
+        * ((1.0 + inflation) ** max(0, retirement_age - social_security_claim_age))
+        if social_security_claim_age <= retirement_age
+        else 0.0
+    )
+    net_portfolio_draw_at_retirement = max(
+        adj_spending_at_retirement - ss_at_retirement_age, 0.0
+    )
+
+    claim_year = current_year + (social_security_claim_age - current_age)
+    years_base_to_claim = max(0, claim_year - spending_base_year)
+    adj_spending_at_claim = (
+        base_spending_total * ((1.0 + inflation) ** years_base_to_claim)
+        if base_spending_total > 0
+        else 0.0
+    )
+    net_portfolio_draw_at_claim = max(
+        adj_spending_at_claim - social_security_base_annual_income, 0.0
     )
 
     contribution_details = user_profile.get("contribution_details", {})
@@ -654,6 +940,15 @@ def run_stress_test(
 
         age = current_age
         salary = base_salary
+        salary_transition_applied = False
+        if contribution_details.get("career_transition_age") is not None and age >= int(
+            contribution_details.get("career_transition_age")
+        ):
+            salary = salary * max(
+                0.0,
+                min(1.0, float(contribution_details.get("career_transition_income_pct", 1.0))),
+            )
+            salary_transition_applied = True
         bal_401k = start_401k
         bal_ira = start_ira
         bal_income = 0.0
@@ -699,7 +994,19 @@ def run_stress_test(
             withdrawal = 0.0
 
             if age < retirement_age:
-                contribution = _annual_contribution(user_profile, salary)
+                salary, salary_transition_applied = _apply_second_career_transition(
+                    salary,
+                    age,
+                    contribution_details,
+                    salary_transition_applied,
+                )
+                contribution = _annual_contribution(
+                    user_profile,
+                    salary,
+                    age=age,
+                    years_since_start=max(0, age - current_age),
+                    inflation=inflation,
+                )
                 salary *= (1.0 + salary_growth)
             else:
                 if retirement_start_balance is None:
@@ -720,22 +1027,22 @@ def run_stress_test(
             # Route contributions to their proper account buckets.
             # 401k employee+match → bal_401k, IRA → bal_ira, rental income → bal_income.
             contribution_401k = contribution
-            contribution_ira = _annual_ira_contribution(user_profile, year_idx, inflation) if age < retirement_age else 0.0
+            contribution_ira = (
+                _annual_ira_contribution(
+                    user_profile,
+                    year_idx,
+                    inflation,
+                    age=age,
+                )
+                if age < retirement_age
+                else 0.0
+            )
             # Rental income is an investable cash flow; in retirement it already offsets withdrawal above.
             contribution_income = rental_net_cashflow if age < retirement_age else 0.0
 
-            if total_balance > 0:
-                share_401k = bal_401k / total_balance
-                share_ira = bal_ira / total_balance
-                share_income = bal_income / total_balance
-            else:
-                share_401k = account_weight_401k
-                share_ira = account_weight_ira
-                share_income = 0.0
-
-            withdrawal_401k = withdrawal * share_401k
-            withdrawal_ira = withdrawal * share_ira
-            withdrawal_income = withdrawal * share_income
+            withdrawal_401k, withdrawal_ira, withdrawal_income = _route_withdrawal(
+                withdrawal, bal_401k, bal_ira, bal_income, withdrawal_strategy
+            )
 
             # Mid-period cashflow convention avoids overstating or understating timing impacts.
             effective_401k = max(bal_401k + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
@@ -810,7 +1117,56 @@ def run_stress_test(
             "contribution_schedule": "Pre-retirement annual salary-based 401k contribution with employer match plus inflation-indexed IRA annual contributions",
             "withdrawal_phase": "Retirement withdrawals begin at retirement age and grow with inflation",
             "withdrawal_rate": withdrawal_pct,
+            "withdrawal_strategy": withdrawal_strategy,
             "inflation_rate": inflation,
+            "maximize_retirement_contributions": bool(
+                contribution_details.get("maximize_retirement_contributions", False)
+            ),
+            "career_transition": {
+                "enabled": contribution_details.get("career_transition_age") is not None,
+                "transition_age": contribution_details.get("career_transition_age"),
+                "post_transition_income_pct": contribution_details.get("career_transition_income_pct"),
+            },
+            "contribution_limits": {
+                "401k_base_limit": contribution_details.get(
+                    "annual_401k_contribution_limit",
+                    DEFAULT_401K_CONTRIBUTION_LIMIT,
+                ),
+                "401k_catch_up_start_age": contribution_details.get(
+                    "401k_catch_up_start_age",
+                    DEFAULT_401K_CATCH_UP_AGE,
+                ),
+                "401k_catch_up_limit": contribution_details.get(
+                    "annual_401k_catch_up_limit",
+                    DEFAULT_401K_CATCH_UP_LIMIT,
+                ),
+                "401k_enhanced_catch_up_age_range": [
+                    contribution_details.get(
+                        "401k_enhanced_catch_up_start_age",
+                        DEFAULT_401K_ENHANCED_CATCH_UP_START_AGE,
+                    ),
+                    contribution_details.get(
+                        "401k_enhanced_catch_up_end_age",
+                        DEFAULT_401K_ENHANCED_CATCH_UP_END_AGE,
+                    ),
+                ],
+                "401k_enhanced_catch_up_limit": contribution_details.get(
+                    "annual_401k_enhanced_catch_up_limit",
+                    DEFAULT_401K_ENHANCED_CATCH_UP_LIMIT,
+                ),
+                "ira_base_limit": contribution_details.get(
+                    "annual_ira_contribution_limit",
+                    DEFAULT_IRA_CONTRIBUTION_LIMIT,
+                ),
+                "ira_catch_up_start_age": contribution_details.get(
+                    "ira_catch_up_start_age",
+                    DEFAULT_IRA_CATCH_UP_AGE,
+                ),
+                "ira_catch_up_limit": contribution_details.get(
+                    "annual_ira_catch_up_limit",
+                    DEFAULT_IRA_CATCH_UP_LIMIT,
+                ),
+            },
             "social_security_offsets_withdrawals": True,
             "income_investment_strategy": "All modeled income cashflows are invested to a Boglehead 3-fund portfolio (FXAIX/FZILX/FXNAX).",
         },
@@ -820,6 +1176,61 @@ def run_stress_test(
             "base_annual_benefit_at_claim_age": round(social_security_base_annual_income, 2),
             "benefit_growth_assumption": "COLA approximated at inflation",
             "estimation_method": "AIME/PIA from projected peak earnings years with delayed-retirement credits",
+        },
+        "retirement_spending_needs": {
+            "spending_profile": {
+                "base_year": spending_base_year,
+                "annual_general_living_expenses": round(base_spending_general, 2),
+                "annual_medical_quality_of_life_expenses": round(base_spending_medical, 2),
+                "annual_total_base_spending": round(base_spending_total, 2),
+                "prorated_note": (
+                    individual_spending_config.get("_prorated_note")
+                    if individual_spending_config
+                    else None
+                ),
+            } if individual_spending_config else None,
+            "at_retirement_age": {
+                "year": retirement_year,
+                "age": retirement_age,
+                "inflation_adjusted_annual_spending": round(adj_spending_at_retirement, 2),
+                "social_security_annual_income": round(ss_at_retirement_age, 2),
+                "ss_status": (
+                    f"SS not yet claimed at retirement — first benefit at age {social_security_claim_age} ({claim_year})."
+                    if social_security_claim_age > retirement_age
+                    else f"SS already claimed at retirement age {social_security_claim_age}."
+                ),
+                "net_annual_portfolio_withdrawal_needed": round(net_portfolio_draw_at_retirement, 2),
+            } if individual_spending_config else None,
+            "at_ss_claim_age": {
+                "year": claim_year,
+                "age": social_security_claim_age,
+                "inflation_adjusted_annual_spending": round(adj_spending_at_claim, 2),
+                "social_security_annual_income": round(social_security_base_annual_income, 2),
+                "net_annual_portfolio_withdrawal_needed": round(net_portfolio_draw_at_claim, 2),
+            } if individual_spending_config else None,
+            "coverage_at_p50": {
+                "p50_portfolio_at_retirement": round(
+                    percentile(sorted(retirement_portfolio_balances), 0.50), 2
+                ),
+                "configured_withdrawal_rate": withdrawal_pct,
+                "p50_annual_withdrawal": round(
+                    percentile(sorted(retirement_portfolio_balances), 0.50) * withdrawal_pct, 2
+                ),
+                "spending_need_at_retirement": round(adj_spending_at_retirement, 2),
+                "coverage_ratio": round(
+                    (
+                        percentile(sorted(retirement_portfolio_balances), 0.50)
+                        * withdrawal_pct
+                    ) / adj_spending_at_retirement,
+                    3,
+                ) if adj_spending_at_retirement > 0 else None,
+                "note": "Coverage ratio > 1.0 means the configured withdrawal rate generates more income than the projected spending need.",
+            } if individual_spending_config else None,
+            "mortgage_note": (
+                "Primary residence mortgage is modeled as fully amortized before retirement "
+                "via the rental-asset amortization simulation; no mortgage P&I payments "
+                "apply during the retirement withdrawal phase."
+            ),
         },
         "portfolio_management": {
             "retirement_rebalance_target_bonds_pct": int(RETIREMENT_BOND_TARGET_PCT * 100),
@@ -1030,6 +1441,7 @@ def run_joint_stress_test(
     inflation = DEFAULT_INFLATION_PCT / 100.0
     success_threshold = DEFAULT_SUCCESS_THRESHOLD_PCT / 100.0
     withdrawal_pct = float(profiles[0].get("withdrawal_pct") or DEFAULT_WITHDRAWAL_PCT)
+    withdrawal_strategy = str(profiles[0].get("withdrawal_order") or WITHDRAWAL_STRATEGY_PROPORTIONAL)
     social_security_base_annual_incomes = [
         _estimate_social_security_annual_benefit(
             profile,
@@ -1103,12 +1515,18 @@ def run_joint_stress_test(
             float(p.get("contribution_details", {}).get("annual_salary", 0.0))
             for p in profiles
         ]
+        salary_transition_applied = [False for _ in profiles]
+        for i, profile in enumerate(profiles):
+            contribution_details = profile.get("contribution_details", {})
+            transition_age_raw = contribution_details.get("career_transition_age")
+            if transition_age_raw is not None and ages[i] >= int(transition_age_raw):
+                salaries[i] = salaries[i] * max(
+                    0.0,
+                    min(1.0, float(contribution_details.get("career_transition_income_pct", 1.0))),
+                )
+                salary_transition_applied[i] = True
         employee_contribution_pcts = [
             float(p.get("contribution_details", {}).get("annual_contribution_pct", 0.0))
-            for p in profiles
-        ]
-        ira_annual_contributions = [
-            float(p.get("contribution_details", {}).get("annual_ira_contribution", 0.0))
             for p in profiles
         ]
 
@@ -1200,21 +1618,38 @@ def run_joint_stress_test(
                     total_debt_payment += _apply_debt_payments_for_year(debt_state, rng)
                 debt_fully_paid = bool(debt_states) and (sum(ds["remaining_principal"] for ds in debt_states) <= 0.0)
 
-            planned_contributions = [0.0] * len(profiles)
+            planned_401k_contributions = [0.0] * len(profiles)
             planned_ira_contributions = [0.0] * len(profiles)
+            planned_rental_contributions = [0.0] * len(profiles)
             for i, profile in enumerate(profiles):
                 if ages[i] < retirement_ages[i]:
-                    planned_contributions[i] = _annual_contribution(
+                    contribution_details = profile.get("contribution_details", {})
+                    salaries[i], salary_transition_applied[i] = _apply_second_career_transition(
+                        salaries[i],
+                        ages[i],
+                        contribution_details,
+                        salary_transition_applied[i],
+                    )
+                    planned_401k_contributions[i] = _annual_contribution(
                         profile,
                         salaries[i],
                         employee_pct_override=employee_contribution_pcts[i],
+                        age=ages[i],
+                        years_since_start=max(0, ages[i] - current_ages[i]),
+                        inflation=inflation,
                     )
                     salaries[i] *= (
                         1.0 + float(profile.get("contribution_details", {}).get("salary_increase_pct", 0.0))
                     )
                     years_since_start = max(0, ages[i] - current_ages[i])
-                    planned_ira_contributions[i] = ira_annual_contributions[i] * ((1.0 + inflation) ** years_since_start)
+                    planned_ira_contributions[i] = _annual_ira_contribution(
+                        profile,
+                        years_since_start,
+                        inflation,
+                        age=ages[i],
+                    )
 
+            # Rental cashflow is invested in the income fund (separate from 401k/IRA).
             if not all_members_retired and abs(rental_net_cashflow) > 0.0:
                 total_weight = sum(max(bals_401k[i] + bals_ira[i] + bals_income[i], 0.0) for i in range(len(profiles)))
                 for i in range(len(profiles)):
@@ -1222,15 +1657,14 @@ def run_joint_stress_test(
                         member_weight = max(bals_401k[i] + bals_ira[i] + bals_income[i], 0.0) / total_weight
                     else:
                         member_weight = 1.0 / len(profiles)
-                    planned_contributions[i] += rental_net_cashflow * member_weight
+                    planned_rental_contributions[i] = rental_net_cashflow * member_weight
 
-            for i in range(len(profiles)):
-                planned_contributions[i] += planned_ira_contributions[i]
-
-            total_planned = sum(planned_contributions)
+            # Debt reduction applies to elective 401k + IRA contributions only (not rental income).
+            total_planned = sum(planned_401k_contributions) + sum(planned_ira_contributions)
             if apply_debt_contribution_reduction and total_planned > 0 and total_debt_payment > 0:
                 reduction_ratio = min(1.0, total_debt_payment / total_planned)
-                planned_contributions = [value * (1.0 - reduction_ratio) for value in planned_contributions]
+                planned_401k_contributions = [v * (1.0 - reduction_ratio) for v in planned_401k_contributions]
+                planned_ira_contributions = [v * (1.0 - reduction_ratio) for v in planned_ira_contributions]
 
             # ------ Per-member account updates ------
             for i, profile in enumerate(profiles):
@@ -1243,29 +1677,19 @@ def run_joint_stress_test(
                 sigma_401k *= volatility_uplift
                 sigma_ira *= volatility_uplift
 
-                contrib_i = planned_contributions[i]
-
-                # Allocate household withdrawal proportionally to this member's share
+                # Allocate household withdrawal proportionally to this member's share.
                 member_total = bals_401k[i] + bals_ira[i] + bals_income[i]
                 member_share = member_total / max(total_household, 1.0)
                 withdrawal_i = annual_portfolio_withdrawal * member_share if all_members_retired else 0.0
 
-                # Sub-allocate withdrawal across 401k / IRA within member
-                if member_total > 0:
-                    k_share = bals_401k[i] / member_total
-                    ira_share = bals_ira[i] / member_total
-                    income_share = bals_income[i] / member_total
-                else:
-                    k_share = 0.5
-                    ira_share = 0.5
-                    income_share = 0.0
-
-                contrib_401k = 0.0
-                contrib_ira = 0.0
-                contrib_income = contrib_i
-                w_401k = withdrawal_i * k_share
-                w_ira = withdrawal_i * ira_share
-                w_income = withdrawal_i * income_share
+                # Route contributions to the correct account buckets.
+                # 401k employee + match → bal_401k, IRA → bal_ira, rental income → bal_income.
+                contrib_401k = planned_401k_contributions[i]
+                contrib_ira = planned_ira_contributions[i]
+                contrib_income = planned_rental_contributions[i]
+                w_401k, w_ira, w_income = _route_withdrawal(
+                    withdrawal_i, bals_401k[i], bals_ira[i], bals_income[i], withdrawal_strategy
+                )
 
                 eff_401k = max(bals_401k[i] + 0.5 * (contrib_401k - w_401k), 0.0)
                 eff_ira = max(bals_ira[i] + 0.5 * (contrib_ira - w_ira), 0.0)
@@ -1358,6 +1782,7 @@ def run_joint_stress_test(
         "cashflow": {
             "withdrawal_phase": "Household withdrawals begin when all household members are retired",
             "withdrawal_rate": withdrawal_pct,
+            "withdrawal_strategy": withdrawal_strategy,
             "inflation_rate": inflation,
             "ira_contributions_included": True,
             "social_security_offsets_withdrawals": True,

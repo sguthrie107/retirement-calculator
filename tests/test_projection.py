@@ -15,10 +15,13 @@ from app.services.monte_carlo import (
     _normalize_allocation_weights,
     _rating_for_probability,
     _estimate_social_security_annual_benefit,
+    _route_withdrawal,
     _student_t,
     AssetMoments,
     RATING_BANDS,
     BOND_LIKE_TICKERS,
+    WITHDRAWAL_STRATEGY_PROPORTIONAL,
+    WITHDRAWAL_STRATEGY_401K_FIRST,
 )
 from lib.calculator_utils import project_root, load_user_profile
 
@@ -131,6 +134,42 @@ class TestAnnualContribution:
         # Override to 10%
         assert _annual_contribution(profile, 100_000, employee_pct_override=0.10) == pytest.approx(10_000)
 
+    def test_401k_employee_contribution_respects_catch_up_limit_at_age_50(self):
+        profile = self._make_profile(0.50, 0.0)
+        # 2026 defaults: 23,500 + 7,500 catch-up = 31,000 employee cap
+        result = _annual_contribution(
+            profile,
+            200_000,
+            age=50,
+            years_since_start=0,
+            inflation=0.0,
+        )
+        assert result == pytest.approx(31_000)
+
+    def test_401k_employee_contribution_respects_enhanced_catch_up_ages_60_to_63(self):
+        profile = self._make_profile(0.50, 0.0)
+        # 2026 defaults: 23,500 + 11,250 enhanced catch-up = 34,750 employee cap
+        result = _annual_contribution(
+            profile,
+            300_000,
+            age=60,
+            years_since_start=0,
+            inflation=0.0,
+        )
+        assert result == pytest.approx(34_750)
+
+    def test_maximize_mode_hits_401k_limit_even_with_low_pct(self):
+        profile = self._make_profile(0.01, 0.0)
+        profile["contribution_details"]["maximize_retirement_contributions"] = True
+        result = _annual_contribution(
+            profile,
+            120_000,
+            age=40,
+            years_since_start=0,
+            inflation=0.0,
+        )
+        assert result == pytest.approx(23_500)
+
 
 # ---------------------------------------------------------------------------
 # _annual_ira_contribution
@@ -151,6 +190,24 @@ class TestAnnualIraContribution:
         r = _annual_ira_contribution(self._profile(base), 10, 0.03)
         expected = base * (1.03 ** 10)
         assert r == pytest.approx(expected)
+
+    def test_ira_is_capped_to_limit_when_age_provided(self):
+        r = _annual_ira_contribution(self._profile(10_000), 0, 0.03, age=40)
+        assert r == pytest.approx(7_000)
+
+    def test_ira_catch_up_limit_applies_at_age_50(self):
+        r = _annual_ira_contribution(self._profile(10_000), 0, 0.03, age=50)
+        assert r == pytest.approx(8_000)
+
+    def test_ira_maximize_mode_uses_age_based_limit(self):
+        profile = {
+            "contribution_details": {
+                "annual_ira_contribution": 0,
+                "maximize_retirement_contributions": True,
+            }
+        }
+        r = _annual_ira_contribution(profile, 0, 0.03, age=50)
+        assert r == pytest.approx(8_000)
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +347,61 @@ class TestStudentT:
 # ---------------------------------------------------------------------------
 # lib/calculator_utils
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _route_withdrawal
+# ---------------------------------------------------------------------------
+
+class TestRouteWithdrawal:
+    def test_proportional_splits_by_balance(self):
+        w_401k, w_ira, w_income = _route_withdrawal(10_000, 60_000, 40_000, 0, WITHDRAWAL_STRATEGY_PROPORTIONAL)
+        assert w_401k == pytest.approx(6_000)
+        assert w_ira == pytest.approx(4_000)
+        assert w_income == pytest.approx(0)
+
+    def test_proportional_with_income_bucket(self):
+        # 50k 401k, 30k IRA, 20k income = 100k total; 10k withdrawal
+        w_401k, w_ira, w_income = _route_withdrawal(10_000, 50_000, 30_000, 20_000, WITHDRAWAL_STRATEGY_PROPORTIONAL)
+        assert w_401k == pytest.approx(5_000)
+        assert w_ira == pytest.approx(3_000)
+        assert w_income == pytest.approx(2_000)
+
+    def test_401k_first_drains_401k_before_ira(self):
+        """When 401k can't cover the full withdrawal, the remainder spills into IRA."""
+        w_401k, w_ira, w_income = _route_withdrawal(5_000, 3_000, 100_000, 0, WITHDRAWAL_STRATEGY_401K_FIRST)
+        assert w_401k == pytest.approx(3_000)
+        assert w_ira == pytest.approx(2_000)
+        assert w_income == pytest.approx(0)
+
+    def test_401k_first_ira_untouched_when_401k_covers_all(self):
+        """IRA receives zero withdrawal when 401k balance is sufficient."""
+        w_401k, w_ira, w_income = _route_withdrawal(5_000, 100_000, 100_000, 0, WITHDRAWAL_STRATEGY_401K_FIRST)
+        assert w_401k == pytest.approx(5_000)
+        assert w_ira == pytest.approx(0)
+        assert w_income == pytest.approx(0)
+
+    def test_401k_first_income_bucket_before_ira(self):
+        """After 401k is exhausted, income bucket is drawn before IRA."""
+        w_401k, w_ira, w_income = _route_withdrawal(15_000, 10_000, 100_000, 8_000, WITHDRAWAL_STRATEGY_401K_FIRST)
+        assert w_401k == pytest.approx(10_000)
+        assert w_income == pytest.approx(5_000)
+        assert w_ira == pytest.approx(0)
+
+    def test_zero_withdrawal_returns_all_zeros_proportional(self):
+        assert _route_withdrawal(0, 50_000, 50_000, 10_000, WITHDRAWAL_STRATEGY_PROPORTIONAL) == (0.0, 0.0, 0.0)
+
+    def test_zero_withdrawal_returns_all_zeros_401k_first(self):
+        assert _route_withdrawal(0, 50_000, 50_000, 10_000, WITHDRAWAL_STRATEGY_401K_FIRST) == (0.0, 0.0, 0.0)
+
+    def test_zero_total_balance_returns_zeros_proportional(self):
+        assert _route_withdrawal(1_000, 0, 0, 0, WITHDRAWAL_STRATEGY_PROPORTIONAL) == (0.0, 0.0, 0.0)
+
+    def test_unknown_strategy_falls_back_to_proportional(self):
+        """Unrecognised strategy string uses proportional behaviour."""
+        w_401k, w_ira, w_income = _route_withdrawal(10_000, 60_000, 40_000, 0, "unknown_strategy")
+        assert w_401k == pytest.approx(6_000)
+        assert w_ira == pytest.approx(4_000)
+
 
 class TestCalculatorUtils:
     def test_project_root_exists(self):

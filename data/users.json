@@ -3,9 +3,10 @@
     {
       "name": "Steven",
       "age": 29,
-      "retirement_age": 65,
+      "retirement_age": 67,
       "social_security_claim_age": 70,
-      "withdrawal_pct": 0.05,
+      "withdrawal_pct": 0.045,
+      "withdrawal_order": "401k_first",
       "chart_seed": {
         "projected_backcast": {
           "anchor_year": 2024,
@@ -31,13 +32,16 @@
       "current_401k_balance": 60000,
       "contribution_details": {
         "annual_salary": 135000,
-        "annual_contribution_pct": 0.04,
+        "annual_contribution_pct": 0.05,
         "annual_ira_contribution": 7000,
         "company_match_pct": 0.00,
         "salary_increase_pct": 0.025,
         "contribution_frequency": "weekly",
         "company_match_type": "dollar-for-dollar",
-        "company_match_vested_pct": 1.0
+        "company_match_vested_pct": 1.0,
+        "career_transition_age": 60,
+        "career_transition_income_pct": 0.5,
+        "maximize_retirement_contributions": true
       },
       "fund_provider": "Fidelity",
       "current_ira_balance": 40000,
