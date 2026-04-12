@@ -1,18 +1,14 @@
 """Comparison service - merges actual vs projected data."""
-import json
-from pathlib import Path
+from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 from ..models import User, Account, ActualBalance
 from .projection import get_user_projection
+from lib.calculator_utils import load_user_profile as _load_user_profile
 
 
 ACTUAL_BALANCE_YEAR_OFFSET = -1
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
 
 
 def _parse_joint_usernames(username: str) -> list[str] | None:
@@ -25,16 +21,75 @@ def _parse_joint_usernames(username: str) -> list[str] | None:
     return None
 
 
-def _load_user_profile(username: str) -> dict:
-    users_path = _project_root() / "data" / "users.json"
-    with open(users_path, "r", encoding="utf-8") as f:
-        users_data = json.load(f)
 
-    for user in users_data.get("users", []):
-        if user.get("name") == username:
-            return user
+def _build_actual_series(rows: list) -> list[dict]:
+    actual_by_year: dict[int, float] = {}
+    balance_id_map: dict[int, list[int]] = defaultdict(list)
+    timestamp_map: dict[int, str] = {}
+    account_balances_map: dict[int, dict[str, float]] = {}
 
-    raise ValueError(f"User '{username}' not found in users.json")
+    for row in rows:
+        year = _normalize_actual_balance_year(row.year)
+        if year <= 0:
+            continue
+
+        actual_by_year[year] = actual_by_year.get(year, 0.0) + float(row.balance)
+
+        if year not in account_balances_map:
+            account_balances_map[year] = {}
+        account_balances_map[year][str(row.account_type)] = round(float(row.balance), 2)
+
+        balance_id_map[year].append(int(row.id))
+        if year not in timestamp_map or str(row.recorded_at) > str(timestamp_map[year]):
+            timestamp_map[year] = row.recorded_at
+
+    return [
+        {
+            "year": year,
+            "balance": round(balance, 2),
+            "balance_ids": [int(bid) for bid in balance_id_map.get(year, [])],
+            "timestamp": timestamp_map.get(year),
+            "account_balances": account_balances_map.get(year, {}),
+        }
+        for year, balance in sorted(actual_by_year.items())
+    ]
+
+
+def _preload_actual_series_for_users(db: Session, users: list[User]) -> dict[str, list[dict]]:
+    if not users:
+        return {}
+
+    user_id_to_name = {int(user.id): user.name for user in users}
+    user_ids = list(user_id_to_name.keys())
+
+    rows = (
+        db.query(
+            ActualBalance.id.label("id"),
+            ActualBalance.year.label("year"),
+            ActualBalance.balance.label("balance"),
+            ActualBalance.recorded_at.label("recorded_at"),
+            Account.user_id.label("user_id"),
+            Account.account_type.label("account_type"),
+        )
+        .join(Account, ActualBalance.account_id == Account.id)
+        .filter(
+            Account.user_id.in_(user_ids),
+            Account.account_type.in_(("401k", "roth_ira")),
+        )
+        .order_by(ActualBalance.year)
+        .all()
+    )
+
+    rows_by_username: dict[str, list] = defaultdict(list)
+    for row in rows:
+        username = user_id_to_name.get(int(row.user_id))
+        if username:
+            rows_by_username[username].append(row)
+
+    return {
+        username: _build_actual_series(user_rows)
+        for username, user_rows in rows_by_username.items()
+    }
 
 
 def _sum_account_balances(account_balances: dict) -> float:
@@ -447,7 +502,12 @@ def _apply_actual_chart_seed(actual: list[dict], profile: dict) -> list[dict]:
     return [by_year[year] for year in sorted(by_year.keys())]
 
 
-def get_comparison_data(username: str, db: Session, current_year: int = 2026) -> dict:
+def get_comparison_data(
+    username: str,
+    db: Session,
+    current_year: int = 2026,
+    preloaded_actual_series: dict[str, list[dict]] | None = None,
+) -> dict:
     """
     Get actual vs projected comparison data for a user.
     
@@ -461,7 +521,15 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     """
     joint_usernames = _parse_joint_usernames(username)
     if joint_usernames:
-        member_results = [get_comparison_data(member, db, current_year) for member in joint_usernames]
+        member_results = [
+            get_comparison_data(
+                member,
+                db,
+                current_year,
+                preloaded_actual_series=preloaded_actual_series,
+            )
+            for member in joint_usernames
+        ]
         projected = _aggregate_projected_series([result.get("projected", []) for result in member_results])
         projected = _ensure_continuous_projected_series(projected)
         actual = _aggregate_actual_series([result.get("actual", []) for result in member_results])
@@ -492,63 +560,29 @@ def get_comparison_data(username: str, db: Session, current_year: int = 2026) ->
     # Keep projected account balances as true projected values.
     
     # Get actual balances from database
-    user = db.query(User).filter(User.name == username).first()
-    
     actual = []
-    balance_id_map = {}  # Maps (year) -> list of balance IDs
-    timestamp_map = {}  # Maps (year) -> most recent timestamp
-    account_balances_map = {}  # Maps (year) -> {account_type: balance}
-    
-    if user:
-        # Get all actual balances for this user across all accounts
-        actuals_401k = (
-            db.query(ActualBalance)
-            .join(Account)
-            .filter(Account.user_id == user.id, Account.account_type == "401k")
-            .order_by(ActualBalance.year)
-            .all()
-        )
-        
-        actuals_ira = (
-            db.query(ActualBalance)
-            .join(Account)
-            .filter(Account.user_id == user.id, Account.account_type == "roth_ira")
-            .order_by(ActualBalance.year)
-            .all()
-        )
-        
-        # Combine 401k + IRA by year, tracking separate balances
-        actual_by_year = {}
-        for ab in actuals_401k + actuals_ira:
-            year = _normalize_actual_balance_year(ab.year)
-            if year <= 0:
-                continue
-            actual_by_year[year] = actual_by_year.get(year, 0) + ab.balance
-            
-            # Track account-specific balance
-            if year not in account_balances_map:
-                account_balances_map[year] = {}
-            account_balances_map[year][ab.account.account_type] = round(ab.balance, 2)
-            
-            # Track balance IDs for this year
-            if year not in balance_id_map:
-                balance_id_map[year] = []
-            balance_id_map[year].append(ab.id)
-            # Track the most recent timestamp for this year
-            if year not in timestamp_map or ab.recorded_at > timestamp_map[year]:
-                timestamp_map[year] = ab.recorded_at
-        
-        actual = [
-            {
-                "year": year, 
-                "balance": round(balance, 2), 
-                "balance_ids": [int(bid) for bid in balance_id_map.get(year, [])], 
-                "timestamp": timestamp_map.get(year),
-                "account_balances": account_balances_map.get(year, {})
-            }
-            for year, balance in sorted(actual_by_year.items())
-        ]
-        
+    if preloaded_actual_series is not None:
+        actual = preloaded_actual_series.get(username, [])
+    else:
+        user = db.query(User).filter(User.name == username).first()
+        if user:
+            rows = (
+                db.query(
+                    ActualBalance.id.label("id"),
+                    ActualBalance.year.label("year"),
+                    ActualBalance.balance.label("balance"),
+                    ActualBalance.recorded_at.label("recorded_at"),
+                    Account.account_type.label("account_type"),
+                )
+                .join(Account, ActualBalance.account_id == Account.id)
+                .filter(
+                    Account.user_id == user.id,
+                    Account.account_type.in_(("401k", "roth_ira")),
+                )
+                .order_by(ActualBalance.year)
+                .all()
+            )
+            actual = _build_actual_series(rows)
     
     actual = _apply_actual_chart_seed(actual, profile)
 
@@ -579,13 +613,19 @@ def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
         All projections extended to same end year with null values for padding.
     """
     users = db.query(User).all()
+    preloaded_actual_series = _preload_actual_series_for_users(db, users)
 
     users_data = []
     usernames = {u.name for u in users}
 
     for user in users:
         try:
-            comparison = get_comparison_data(user.name, db, current_year)
+            comparison = get_comparison_data(
+                user.name,
+                db,
+                current_year,
+                preloaded_actual_series=preloaded_actual_series,
+            )
             users_data.append(
                 {
                     "username": user.name,
@@ -605,7 +645,12 @@ def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
 
     if {"Steven", "Alyssa"}.issubset(usernames) and not has_existing_joint:
         try:
-            household = get_comparison_data("Steven+Alyssa", db, current_year)
+            household = get_comparison_data(
+                "Steven+Alyssa",
+                db,
+                current_year,
+                preloaded_actual_series=preloaded_actual_series,
+            )
             users_data.append(
                 {
                     "username": "Steven + Alyssa Portfolio",

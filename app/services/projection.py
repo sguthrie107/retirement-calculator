@@ -59,8 +59,9 @@ def _compute_rental_income_overlay(
     rental_balance = 0.0
     overlay: dict[int, float] = {}
 
-    year_start = min(projected_years)
-    year_end = max(projected_years)
+    projected_year_set = set(projected_years)
+    year_start = min(projected_year_set)
+    year_end = max(projected_year_set)
 
     for year in range(year_start, year_end + 1):
         age = user_age_now + (year - current_year)
@@ -78,7 +79,7 @@ def _compute_rental_income_overlay(
         # Applied both pre- and post-retirement so the rental keeps compounding.
         rental_balance = (rental_balance + cashflow / 2.0) * (1.0 + blended_rate) + cashflow / 2.0
 
-        if year in set(projected_years):
+        if year in projected_year_set:
             overlay[year] = round(rental_balance, 2)
 
     return overlay
@@ -114,16 +115,16 @@ def get_user_projection(username: str, current_year: int = 2026) -> dict:
 
         # Compute rental income overlay — mirrors MC behavior where net rental
         # cashflow is treated as additional investable contribution each year.
-        projected_years = [int(row["year"]) for _, row in merged.iterrows()]
+        projected_years = [int(year) for year in merged["year"].tolist()]
         rental_overlay = _compute_rental_income_overlay(
             username, user_profile, projected_years, current_year
         )
         
         # Convert to list of dicts with account breakdown
         projected = []
-        for _, row in merged.iterrows():
-            year = int(row["year"])
-            total_balance = round(float(row["total_balance"]), 2)
+        for row in merged.itertuples(index=False):
+            year = int(row.year)
+            total_balance = round(float(row.total_balance), 2)
             rental_balance = rental_overlay.get(year, 0.0)
             
             # Get account balances for this year

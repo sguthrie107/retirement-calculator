@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..limiter import limiter
 from ..schemas import JointStressTestRecalculateRequest, StressTestEnvelope, StressTestRecalculateRequest
 from ..services.monte_carlo import (
@@ -18,6 +18,32 @@ from ..services.monte_carlo import (
 )
 
 router = APIRouter(prefix="/api/stress-test")
+
+
+def _run_stress_test_with_local_session(*, username: str, simulation_count: int, random_seed: int | None):
+    db = SessionLocal()
+    try:
+        return run_stress_test(
+            username=username,
+            db=db,
+            simulation_count=simulation_count,
+            random_seed=random_seed,
+        )
+    finally:
+        db.close()
+
+
+def _run_joint_stress_test_with_local_session(*, usernames: list[str], simulation_count: int, random_seed: int | None):
+    db = SessionLocal()
+    try:
+        return run_joint_stress_test(
+            usernames=usernames,
+            db=db,
+            simulation_count=simulation_count,
+            random_seed=random_seed,
+        )
+    finally:
+        db.close()
 
 
 @router.get("/joint-result", response_model=StressTestEnvelope)
@@ -48,13 +74,20 @@ async def recalculate_joint_stress_test(
 ):
     """Run a new joint household Monte Carlo stress test and persist the result."""
     try:
-        result = await asyncio.to_thread(
-            run_joint_stress_test,
-            usernames=body.usernames,
-            db=db,
-            simulation_count=body.simulation_count,
-            random_seed=body.random_seed,
-        )
+        if db.bind and db.bind.dialect.name == "sqlite":
+            result = run_joint_stress_test(
+                usernames=body.usernames,
+                db=db,
+                simulation_count=body.simulation_count,
+                random_seed=body.random_seed,
+            )
+        else:
+            result = await asyncio.to_thread(
+                _run_joint_stress_test_with_local_session,
+                usernames=body.usernames,
+                simulation_count=body.simulation_count,
+                random_seed=body.random_seed,
+            )
         assumptions = result.assumptions_json or {}
         display_name = " + ".join(assumptions.get("usernames", body.usernames))
         return {"result": to_response_payload(result, display_name)}
@@ -95,13 +128,20 @@ async def recalculate_stress_test(
 ):
     """Run a new Monte Carlo stress test (offloaded to thread pool) and persist the result."""
     try:
-        result = await asyncio.to_thread(
-            run_stress_test,
-            username=username,
-            db=db,
-            simulation_count=body.simulation_count,
-            random_seed=body.random_seed,
-        )
+        if db.bind and db.bind.dialect.name == "sqlite":
+            result = run_stress_test(
+                username=username,
+                db=db,
+                simulation_count=body.simulation_count,
+                random_seed=body.random_seed,
+            )
+        else:
+            result = await asyncio.to_thread(
+                _run_stress_test_with_local_session,
+                username=username,
+                simulation_count=body.simulation_count,
+                random_seed=body.random_seed,
+            )
         return {"result": to_response_payload(result, username)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
