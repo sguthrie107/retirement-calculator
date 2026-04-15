@@ -13,6 +13,7 @@ from app.services.monte_carlo import (
     _draw_annual_return,
     _is_bond_like_ticker,
     _normalize_allocation_weights,
+    _retirement_spending_for_year,
     _rating_for_probability,
     _estimate_social_security_annual_benefit,
     _route_withdrawal,
@@ -23,7 +24,7 @@ from app.services.monte_carlo import (
     WITHDRAWAL_STRATEGY_PROPORTIONAL,
     WITHDRAWAL_STRATEGY_401K_FIRST,
 )
-from lib.calculator_utils import project_root, load_user_profile
+from lib.calculator_utils import compute_contribution_pct_for_year, project_root, load_user_profile
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +171,37 @@ class TestAnnualContribution:
         )
         assert result == pytest.approx(23_500)
 
+    def test_calendar_year_step_up_schedule_applies(self):
+        profile = self._make_profile(0.05, 0.0)
+        profile["contribution_details"].update({
+            "annual_contribution_pct_step_start_year": 2031,
+            "annual_contribution_pct_step_pct": 0.01,
+            "annual_contribution_pct_step_cap_pct": 0.15,
+        })
+        result = _annual_contribution(
+            profile,
+            100_000,
+            age=40,
+            calendar_year=2033,
+            years_since_start=0,
+            inflation=0.0,
+        )
+        assert result == pytest.approx(8_000)
+
+
+class TestContributionPctSchedule:
+    def test_compute_contribution_pct_for_year_caps_at_limit(self):
+        contribution_details = {
+            "annual_contribution_pct": 0.05,
+            "annual_contribution_pct_step_start_year": 2031,
+            "annual_contribution_pct_step_pct": 0.01,
+            "annual_contribution_pct_step_cap_pct": 0.15,
+        }
+
+        assert compute_contribution_pct_for_year(contribution_details, 2030) == pytest.approx(0.05)
+        assert compute_contribution_pct_for_year(contribution_details, 2031) == pytest.approx(0.06)
+        assert compute_contribution_pct_for_year(contribution_details, 2045) == pytest.approx(0.15)
+
 
 # ---------------------------------------------------------------------------
 # _annual_ira_contribution
@@ -208,6 +240,27 @@ class TestAnnualIraContribution:
         }
         r = _annual_ira_contribution(profile, 0, 0.03, age=50)
         assert r == pytest.approx(8_000)
+
+
+class TestRetirementSpendingForYear:
+    def test_applies_expense_adjustment_once_effective_year_is_reached(self):
+        spending_config = {
+            "base_year": 2026,
+            "annual_general_living_expenses": 115_000,
+            "annual_medical_quality_of_life_expenses": 30_000,
+            "expense_adjustments": [
+                {
+                    "effective_year": 2052,
+                    "annual_general_living_expenses_delta": -24_000,
+                }
+            ],
+        }
+
+        _, _, before_payoff = _retirement_spending_for_year(spending_config, 2051, 0.0)
+        _, _, after_payoff = _retirement_spending_for_year(spending_config, 2052, 0.0)
+
+        assert before_payoff == pytest.approx(145_000)
+        assert after_payoff == pytest.approx(121_000)
 
 
 # ---------------------------------------------------------------------------

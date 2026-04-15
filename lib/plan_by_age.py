@@ -5,6 +5,7 @@ from pandas import DataFrame
 
 from .data_loader import load_json_file, get_fund_by_ticker
 from .constants import DATA_FILES
+from .calculator_utils import compute_contribution_pct_for_year
 
 """
 401k Retirement Plan - Age-Based Phase Projections
@@ -199,6 +200,7 @@ def _project_phase(
     beneficiary: str,
     phase_label: str,
     match_basis: str = "salary",
+    contribution_details: Optional[Dict[str, Any]] = None,
 ) -> Tuple[DataFrame, float, float]:
     """
     Project 401k balance year-by-year for a single phase with dividend/yield reinvestment.
@@ -235,11 +237,17 @@ def _project_phase(
         year = start_year + i
         age = start_age + i
 
-        employee_contrib = current_salary * contribution_pct
+        effective_contribution_pct = compute_contribution_pct_for_year(
+            contribution_details or {},
+            year,
+            base_pct_override=contribution_pct,
+        )
+
+        employee_contrib = current_salary * effective_contribution_pct
         if match_basis == "employee":
             employer_match = employee_contrib * match_pct
         else:
-            effective_match_pct = min(match_pct, contribution_pct)
+            effective_match_pct = min(match_pct, effective_contribution_pct)
             employer_match = current_salary * effective_match_pct
         total_contrib = employee_contrib + employer_match
 
@@ -333,6 +341,7 @@ def retirement_401k_age_based_plan_phase_1(
         allocation=phase_cfg["allocation"],
         beneficiary=beneficiary,
         phase_label="Phase 1",
+            contribution_details=contrib,
     )
 
     if portfolio is not None and not portfolio.empty:
@@ -390,6 +399,7 @@ def retirement_401k_age_based_plan_phase_2(
         allocation=phase_cfg["allocation"],
         beneficiary=beneficiary,
         phase_label="Phase 2",
+        contribution_details=contrib,
     )
 
     if portfolio is not None and not portfolio.empty:
@@ -449,6 +459,7 @@ def retirement_401k_age_based_plan_phase_3(
         allocation=phase_cfg["allocation"],
         beneficiary=beneficiary,
         phase_label="Phase 3",
+        contribution_details=contrib,
     )
 
     if portfolio is not None and not portfolio.empty:
@@ -538,6 +549,7 @@ def retirement_401k_full_plan(
             allocation=phase_cfg["allocation"],
             beneficiary=beneficiary,
             phase_label=label,
+            contribution_details=contrib,
         )
 
         frames.append(df)
@@ -562,6 +574,7 @@ def retirement_401k_full_plan(
             allocation=phase_cfg["allocation"],
             beneficiary=beneficiary,
             phase_label="Phase 3",
+            contribution_details=contrib,
         )
         frames.append(df)
 

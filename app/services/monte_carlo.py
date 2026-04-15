@@ -14,7 +14,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from lib.calculator_utils import load_users_data, load_user_profile as _load_user_profile
+from lib.calculator_utils import (
+    compute_contribution_pct_for_year,
+    load_users_data,
+    load_user_profile as _load_user_profile,
+)
 from lib.data_loader import load_json_file
 from ..models import Account, ActualBalance, StressTestResult, User
 from .rental_properties import (
@@ -629,6 +633,7 @@ def _annual_contribution(
     employee_pct_override: float | None = None,
     *,
     age: int | None = None,
+    calendar_year: int | None = None,
     years_since_start: int = 0,
     inflation: float = 0.0,
 ) -> float:
@@ -636,10 +641,10 @@ def _annual_contribution(
     maximize_retirement_contributions = bool(
         contribution.get("maximize_retirement_contributions", False)
     )
-    employee_pct = (
-        float(employee_pct_override)
-        if employee_pct_override is not None
-        else float(contribution.get("annual_contribution_pct", 0.0))
+    employee_pct = compute_contribution_pct_for_year(
+        contribution,
+        calendar_year,
+        base_pct_override=employee_pct_override,
     )
 
     if maximize_retirement_contributions:
@@ -774,6 +779,39 @@ def _estimate_social_security_annual_benefit(
     return max(pia * 12.0, 0.0)
 
 
+def _retirement_spending_for_year(
+    spending_config: dict[str, Any] | None,
+    simulation_year: int,
+    inflation: float,
+) -> tuple[float, float, float]:
+    """Return inflation-adjusted retirement spending for a specific year.
+
+    Base spending is indexed from ``base_year``. Optional ``expense_adjustments``
+    are applied once their ``effective_year`` is reached.
+    """
+    if not spending_config:
+        return 0.0, 0.0, 0.0
+
+    base_year = int(spending_config.get("base_year", simulation_year))
+    years_since_base = max(0, simulation_year - base_year)
+    inflation_factor = (1.0 + inflation) ** years_since_base
+
+    general = float(spending_config.get("annual_general_living_expenses", 0.0)) * inflation_factor
+    medical = float(spending_config.get("annual_medical_quality_of_life_expenses", 0.0)) * inflation_factor
+
+    for adjustment in spending_config.get("expense_adjustments", []) or []:
+        effective_year = adjustment.get("effective_year")
+        if effective_year is None or simulation_year < int(effective_year):
+            continue
+
+        general += float(adjustment.get("annual_general_living_expenses_delta", 0.0))
+        medical += float(adjustment.get("annual_medical_quality_of_life_expenses_delta", 0.0))
+
+    general = max(general, 0.0)
+    medical = max(medical, 0.0)
+    return general, medical, general + medical
+
+
 def _apply_debt_payments_for_year(debt_state: dict[str, float], rng: random.Random) -> float:
     remaining = float(debt_state.get("remaining_principal", 0.0))
     if remaining <= 0:
@@ -871,11 +909,10 @@ def run_stress_test(
     base_spending_total = base_spending_general + base_spending_medical
 
     retirement_year = current_year + (retirement_age - current_age)
-    years_base_to_retirement = max(0, retirement_year - spending_base_year)
-    adj_spending_at_retirement = (
-        base_spending_total * ((1.0 + inflation) ** years_base_to_retirement)
-        if base_spending_total > 0
-        else 0.0
+    _, _, adj_spending_at_retirement = _retirement_spending_for_year(
+        individual_spending_config,
+        retirement_year,
+        inflation,
     )
     # SS may not have started at retirement age (e.g. claiming at 70, retiring at 67).
     ss_at_retirement_age = (
@@ -889,11 +926,10 @@ def run_stress_test(
     )
 
     claim_year = current_year + (social_security_claim_age - current_age)
-    years_base_to_claim = max(0, claim_year - spending_base_year)
-    adj_spending_at_claim = (
-        base_spending_total * ((1.0 + inflation) ** years_base_to_claim)
-        if base_spending_total > 0
-        else 0.0
+    _, _, adj_spending_at_claim = _retirement_spending_for_year(
+        individual_spending_config,
+        claim_year,
+        inflation,
     )
     net_portfolio_draw_at_claim = max(
         adj_spending_at_claim - social_security_base_annual_income, 0.0
@@ -1004,6 +1040,7 @@ def run_stress_test(
                     user_profile,
                     salary,
                     age=age,
+                    calendar_year=current_year + year_idx,
                     years_since_start=max(0, age - current_age),
                     inflation=inflation,
                 )
@@ -1561,6 +1598,15 @@ def run_joint_stress_test(
             rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
             housing_equity = housing_total_equity(housing_asset_states)
 
+            simulation_year = current_year + _year_idx
+
+            for i, profile in enumerate(profiles):
+                scheduled_pct = compute_contribution_pct_for_year(
+                    profile.get("contribution_details", {}),
+                    simulation_year,
+                )
+                employee_contribution_pcts[i] = max(employee_contribution_pcts[i], scheduled_pct)
+
             if debt_fully_paid:
                 employee_contribution_pcts = [
                     min(POST_DEBT_CONTRIBUTION_CAP_PCT, pct + POST_DEBT_CONTRIBUTION_STEP_PCT)
@@ -1590,9 +1636,11 @@ def run_joint_stress_test(
 
                 annual_withdrawal = annual_withdrawal_rule_based
                 if base_retirement_spending_annual > 0.0:
-                    simulation_year = current_year + _year_idx
-                    years_since_spending_base = max(0, simulation_year - retirement_spending_base_year)
-                    annual_spending_goal = base_retirement_spending_annual * ((1.0 + inflation) ** years_since_spending_base)
+                    _, _, annual_spending_goal = _retirement_spending_for_year(
+                        household_retirement_spending,
+                        simulation_year,
+                        inflation,
+                    )
                     if enforce_retirement_spending_floor:
                         annual_withdrawal = max(annual_withdrawal, annual_spending_goal)
                     else:
@@ -1635,6 +1683,7 @@ def run_joint_stress_test(
                         salaries[i],
                         employee_pct_override=employee_contribution_pcts[i],
                         age=ages[i],
+                        calendar_year=simulation_year,
                         years_since_start=max(0, ages[i] - current_ages[i]),
                         inflation=inflation,
                     )

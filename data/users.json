@@ -33,6 +33,9 @@
       "contribution_details": {
         "annual_salary": 135000,
         "annual_contribution_pct": 0.05,
+        "annual_contribution_pct_step_start_year": 2031,
+        "annual_contribution_pct_step_pct": 0.01,
+        "annual_contribution_pct_step_cap_pct": 0.15,
         "annual_ira_contribution": 7000,
         "company_match_pct": 0.00,
         "salary_increase_pct": 0.025,
@@ -41,7 +44,7 @@
         "company_match_vested_pct": 1.0,
         "career_transition_age": 60,
         "career_transition_income_pct": 0.5,
-        "maximize_retirement_contributions": true
+        "maximize_retirement_contributions": false
       },
       "fund_provider": "Fidelity",
       "current_ira_balance": 40000,
@@ -115,6 +118,9 @@
       "contribution_details": {
         "annual_salary": 110000,
         "annual_contribution_pct": 0.05,
+        "annual_contribution_pct_step_start_year": 2031,
+        "annual_contribution_pct_step_pct": 0.01,
+        "annual_contribution_pct_step_cap_pct": 0.15,
         "annual_ira_contribution": 7000,
         "company_match_pct": 0.04,
         "salary_increase_pct": 0.03,
@@ -223,7 +229,14 @@
       "retirement_age": 65,
       "base_year": 2026,
       "annual_general_living_expenses": 115000,
-      "annual_medical_quality_of_life_expenses": 30000
+      "annual_medical_quality_of_life_expenses": 30000,
+      "expense_adjustments": [
+        {
+          "name": "Mortgage #1 paid off",
+          "effective_year": 2052,
+          "annual_general_living_expenses_delta": -24000
+        }
+      ]
     }
   ]
 }
