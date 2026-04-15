@@ -201,6 +201,7 @@ def _project_phase(
     phase_label: str,
     match_basis: str = "salary",
     contribution_details: Optional[Dict[str, Any]] = None,
+    contribution_pct_boost: float = 0.0,
 ) -> Tuple[DataFrame, float, float]:
     """
     Project 401k balance year-by-year for a single phase with dividend/yield reinvestment.
@@ -241,6 +242,7 @@ def _project_phase(
             contribution_details or {},
             year,
             base_pct_override=contribution_pct,
+            pct_boost=contribution_pct_boost,
         )
 
         employee_contrib = current_salary * effective_contribution_pct
@@ -479,6 +481,7 @@ def retirement_401k_full_plan(
     match_pct_override: float = None,
     match_basis: str = "salary",
     contribution_pct_override: float = None,
+    contribution_pct_boost: float = 0.0,
 ) -> DataFrame:
     """
     Run a complete 3-phase 401k projection for a stored user.
@@ -550,6 +553,7 @@ def retirement_401k_full_plan(
             beneficiary=beneficiary,
             phase_label=label,
             contribution_details=contrib,
+            contribution_pct_boost=contribution_pct_boost,
         )
 
         frames.append(df)
@@ -575,6 +579,7 @@ def retirement_401k_full_plan(
             beneficiary=beneficiary,
             phase_label="Phase 3",
             contribution_details=contrib,
+            contribution_pct_boost=contribution_pct_boost,
         )
         frames.append(df)
 

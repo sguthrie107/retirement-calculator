@@ -5,7 +5,10 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from ..models import User, Account, ActualBalance
 from .projection import get_user_projection
-from lib.calculator_utils import load_user_profile as _load_user_profile
+from lib.calculator_utils import (
+    compute_contribution_pct_for_year,
+    load_user_profile as _load_user_profile,
+)
 
 
 ACTUAL_BALANCE_YEAR_OFFSET = -1
@@ -250,11 +253,20 @@ def _ensure_continuous_projected_series(projected: list[dict]) -> list[dict]:
     return [filled[year] for year in sorted(filled.keys())]
 
 
-def _estimated_annual_contribution(profile: dict, years_since_base: int = 0) -> float:
+def _estimated_annual_contribution(
+    profile: dict,
+    years_since_base: int = 0,
+    contribution_pct_boost: float = 0.0,
+) -> float:
     contribution = profile.get("contribution_details", {})
     salary = float(contribution.get("annual_salary", 0.0))
     salary_growth = float(contribution.get("salary_increase_pct", 0.0))
-    employee_pct = float(contribution.get("annual_contribution_pct", 0.0))
+    base_year = 2026 + max(0, years_since_base)
+    employee_pct = compute_contribution_pct_for_year(
+        contribution,
+        base_year,
+        pct_boost=contribution_pct_boost,
+    )
     company_match_pct = float(contribution.get("company_match_pct", 0.0))
     vested_pct = float(contribution.get("company_match_vested_pct", 1.0))
     annual_ira_contribution = float(contribution.get("annual_ira_contribution", 0.0))
@@ -264,7 +276,11 @@ def _estimated_annual_contribution(profile: dict, years_since_base: int = 0) -> 
     return max(annual_401k_contribution + annual_ira_contribution, 0.0)
 
 
-def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[dict]:
+def _apply_projected_chart_seed(
+    projected: list[dict],
+    profile: dict,
+    contribution_pct_boost: float = 0.0,
+) -> list[dict]:
     seed = profile.get("chart_seed", {})
     projected_backcast = seed.get("projected_backcast", {})
     if projected_backcast:
@@ -317,7 +333,11 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
             first_total = float(native_by_year[first_native_year].get("balance", 0.0))
             second_total = float(native_by_year[first_native_year + 1].get("balance", 0.0))
             if first_total > 0.0:
-                native_contribution = _estimated_annual_contribution(profile, years_since_base=max(0, first_native_year - anchor_year))
+                native_contribution = _estimated_annual_contribution(
+                    profile,
+                    years_since_base=max(0, first_native_year - anchor_year),
+                    contribution_pct_boost=contribution_pct_boost,
+                )
                 native_mid = 0.5 * native_contribution
                 denom = first_total + native_mid
                 if denom > 0.0:
@@ -342,7 +362,11 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
 
         for year in range(anchor_year + 1, first_native_year + 1):
             years_since_base = max(0, year - anchor_year - 1)
-            contribution = _estimated_annual_contribution(profile, years_since_base=years_since_base)
+            contribution = _estimated_annual_contribution(
+                profile,
+                years_since_base=years_since_base,
+                contribution_pct_boost=contribution_pct_boost,
+            )
             next_total = (cursor_total + 0.5 * contribution) * (1.0 + implied_return) + (0.5 * contribution)
 
             k401_weight = cursor_accounts["401k"] / cursor_total if cursor_total > 0 else 0.5
@@ -439,7 +463,11 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
             first_total = float(native_projected[0].get("balance", 0.0))
             second_total = float(native_projected[1].get("balance", 0.0))
             if first_total > 0.0:
-                native_contribution = _estimated_annual_contribution(profile, years_since_base=0)
+                native_contribution = _estimated_annual_contribution(
+                    profile,
+                    years_since_base=0,
+                    contribution_pct_boost=contribution_pct_boost,
+                )
                 native_mid = 0.5 * native_contribution
                 denom = first_total + native_mid
                 if denom > 0.0:
@@ -447,7 +475,11 @@ def _apply_projected_chart_seed(projected: list[dict], profile: dict) -> list[di
                     implied_return = max(-0.60, min(0.60, implied_return))
 
         years_from_seed_start = max(0, bridge_year - start_year)
-        bridge_contribution = _estimated_annual_contribution(profile, years_since_base=years_from_seed_start)
+        bridge_contribution = _estimated_annual_contribution(
+            profile,
+            years_since_base=years_from_seed_start,
+            contribution_pct_boost=contribution_pct_boost,
+        )
         bridge_total = (start_total + 0.5 * bridge_contribution) * (1.0 + implied_return) + (0.5 * bridge_contribution)
 
         start_401k = float(start_accounts.get("401k", 0.0))

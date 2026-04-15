@@ -13,16 +13,23 @@ from .plan_by_age import calculate_annualized_return
 from .ira import calculate_ira_annualized_return
 
 
-def merge_projections(df_401k: DataFrame, df_ira: DataFrame, withdrawal_pct: float = 0.06, current_year: int = 2026) -> DataFrame:
+def merge_projections(
+    df_401k: DataFrame,
+    df_ira: DataFrame,
+    withdrawal_pct: float = 0.06,
+    current_year: int = 2026,
+    apply_withdrawals: bool = False,
+) -> DataFrame:
     """
     Merge 401k and IRA projections into a unified DataFrame by year and age.
-    Apply withdrawals for Phase 3 rows (retirement phase).
+    Optionally apply withdrawals for Phase 3 rows.
     
     Args:
         df_401k: 401k projection DataFrame
         df_ira: IRA projection DataFrame
         withdrawal_pct: Withdrawal rate to apply in Phase 3 (default 6%)
         current_year: Current year for inflation adjustment (default 2026)
+        apply_withdrawals: Whether to deduct withdrawals from Phase 3 balances
         
     Returns:
         Merged DataFrame with columns for both account types, totals, and withdrawals
@@ -54,10 +61,10 @@ def merge_projections(df_401k: DataFrame, df_ira: DataFrame, withdrawal_pct: flo
         axis=1
     )
     
-    # Apply withdrawals for Phase 3 (retirement phase)
+    # Apply withdrawals only when explicitly requested.
     merged["withdrawal"] = 0.0
     merged["withdrawal_inflation_adjusted"] = 0.0
-    phase_3_mask = merged["phase_display"] == "Phase 3"
+    phase_3_mask = (merged["phase_display"] == "Phase 3") if apply_withdrawals else pd.Series(False, index=merged.index)
     
     if phase_3_mask.any():
         # Calculate withdrawal amount for Phase 3 rows

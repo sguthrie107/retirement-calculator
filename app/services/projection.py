@@ -85,6 +85,62 @@ def _compute_rental_income_overlay(
     return overlay
 
 
+def _build_projected_series(
+    username: str,
+    current_year: int = 2026,
+    *,
+    contribution_pct_override: float | None = None,
+    contribution_pct_boost: float = 0.0,
+) -> list[dict]:
+    """Build a projected account series for baseline or scenario use."""
+    user_profile = _load_user_profile(username)
+
+    df_401k = retirement_401k_full_plan(
+        username,
+        current_year=current_year,
+        contribution_pct_override=contribution_pct_override,
+        contribution_pct_boost=contribution_pct_boost,
+    )
+    df_ira = retirement_ira_full_plan(username, current_year=current_year)
+
+    merged = merge_projections(df_401k, df_ira, current_year=current_year)
+    if merged.empty:
+        return []
+
+    df_401k_lookup = df_401k.set_index('year') if not df_401k.empty else pd.DataFrame()
+    df_ira_lookup = df_ira.set_index('year') if not df_ira.empty else pd.DataFrame()
+
+    projected_years = [int(year) for year in merged["year"].tolist()]
+    rental_overlay = _compute_rental_income_overlay(
+        username,
+        user_profile,
+        projected_years,
+        current_year,
+    )
+
+    projected = []
+    for row in merged.itertuples(index=False):
+        year = int(row.year)
+        total_balance = round(float(row.total_balance), 2)
+        rental_balance = rental_overlay.get(year, 0.0)
+
+        account_balances = {}
+        if year in df_401k_lookup.index:
+            account_balances['401k'] = round(float(df_401k_lookup.loc[year, 'balance']), 2)
+        if year in df_ira_lookup.index:
+            account_balances['roth_ira'] = round(float(df_ira_lookup.loc[year, 'ira_balance']), 2)
+        if rental_balance > 0:
+            account_balances['rental'] = rental_balance
+
+        projected.append({
+            "year": year,
+            "balance": round(total_balance + rental_balance, 2),
+            "account_balances": account_balances,
+        })
+
+    return projected
+
+
 def get_user_projection(username: str, current_year: int = 2026) -> dict:
     """
     Get projected retirement balances for a user.
@@ -97,52 +153,7 @@ def get_user_projection(username: str, current_year: int = 2026) -> dict:
         Dict with 'projected' list of {year, balance, account_balances} dicts
     """
     try:
-        user_profile = _load_user_profile(username)
-
-        # Run existing calculator engine
-        df_401k = retirement_401k_full_plan(username, current_year=current_year)
-        df_ira = retirement_ira_full_plan(username, current_year=current_year)
-        
-        # Merge projections
-        merged = merge_projections(df_401k, df_ira, current_year=current_year)
-        
-        if merged.empty:
-            return {"projected": []}
-        
-        # Build 401k and IRA lookup tables from individual projections
-        df_401k_lookup = df_401k.set_index('year') if not df_401k.empty else pd.DataFrame()
-        df_ira_lookup = df_ira.set_index('year') if not df_ira.empty else pd.DataFrame()
-
-        # Compute rental income overlay — mirrors MC behavior where net rental
-        # cashflow is treated as additional investable contribution each year.
-        projected_years = [int(year) for year in merged["year"].tolist()]
-        rental_overlay = _compute_rental_income_overlay(
-            username, user_profile, projected_years, current_year
-        )
-        
-        # Convert to list of dicts with account breakdown
-        projected = []
-        for row in merged.itertuples(index=False):
-            year = int(row.year)
-            total_balance = round(float(row.total_balance), 2)
-            rental_balance = rental_overlay.get(year, 0.0)
-            
-            # Get account balances for this year
-            account_balances = {}
-            if year in df_401k_lookup.index:
-                account_balances['401k'] = round(float(df_401k_lookup.loc[year, 'balance']), 2)
-            if year in df_ira_lookup.index:
-                account_balances['roth_ira'] = round(float(df_ira_lookup.loc[year, 'ira_balance']), 2)
-            if rental_balance > 0:
-                account_balances['rental'] = rental_balance
-            
-            projected.append({
-                "year": year,
-                "balance": round(total_balance + rental_balance, 2),
-                "account_balances": account_balances
-            })
-        
-        return {"projected": projected}
+        return {"projected": _build_projected_series(username, current_year=current_year)}
     except Exception as e:
         raise ValueError(f"Failed to compute projection for {username}: {str(e)}")
 
@@ -153,45 +164,20 @@ def get_match_scenario_projections(
 ) -> dict:
     """
     Return projected totals for +3% and +5% 401k employee contribution-rate scenarios.
-    Baseline user settings are preserved, then employee 401k contribution pct is
-    increased by 0.03 and 0.05 respectively. IRA projections remain unchanged.
+    Scenario boosts are applied on top of the user’s dynamic contribution schedule.
     """
-    baseline_401k = retirement_401k_full_plan(username, current_year=current_year)
-    df_ira = retirement_ira_full_plan(username, current_year=current_year)
-    baseline_merged = merge_projections(baseline_401k, df_ira, current_year=current_year)
-
-    if baseline_merged.empty:
+    baseline_projected = _build_projected_series(username, current_year=current_year)
+    if not baseline_projected:
         return {"3pct": [], "5pct": [], "baseline": []}
-
-    baseline_by_year = {
-        int(row["year"]): round(float(row["total_balance"]), 2)
-        for _, row in baseline_merged.iterrows()
-    }
-
-    user_profile = _load_user_profile(username)
-    contribution = user_profile.get("contribution_details", {})
-    base_contribution_pct = float(contribution.get("annual_contribution_pct", 0.0))
 
     scenarios = {}
     for key, pct_boost in [("3pct", 0.03), ("5pct", 0.05)]:
-        boosted_contribution_pct = max(0.0, base_contribution_pct + pct_boost)
-        df_401k = retirement_401k_full_plan(
+        scenarios[key] = _build_projected_series(
             username,
             current_year=current_year,
-            contribution_pct_override=boosted_contribution_pct,
+            contribution_pct_boost=pct_boost,
         )
-        merged = merge_projections(df_401k, df_ira, current_year=current_year)
-        scenarios[key] = [
-            {
-                "year": int(row["year"]),
-                "balance": round(float(row["total_balance"]), 2),
-            }
-            for _, row in merged.iterrows()
-        ]
-    scenarios["baseline"] = [
-        {"year": year, "balance": balance}
-        for year, balance in sorted(baseline_by_year.items())
-    ]
+    scenarios["baseline"] = baseline_projected
     return scenarios
 
 

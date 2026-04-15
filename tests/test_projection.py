@@ -6,6 +6,7 @@ database or network access.
 import math
 import random
 import pytest
+import pandas as pd
 
 from app.services.monte_carlo import (
     _annual_contribution,
@@ -25,6 +26,7 @@ from app.services.monte_carlo import (
     WITHDRAWAL_STRATEGY_401K_FIRST,
 )
 from lib.calculator_utils import compute_contribution_pct_for_year, project_root, load_user_profile
+from lib.display_utils import merge_projections
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +204,17 @@ class TestContributionPctSchedule:
         assert compute_contribution_pct_for_year(contribution_details, 2031) == pytest.approx(0.06)
         assert compute_contribution_pct_for_year(contribution_details, 2045) == pytest.approx(0.15)
 
+    def test_compute_contribution_pct_for_year_boosts_base_and_cap(self):
+        contribution_details = {
+            "annual_contribution_pct": 0.05,
+            "annual_contribution_pct_step_start_year": 2031,
+            "annual_contribution_pct_step_pct": 0.01,
+            "annual_contribution_pct_step_cap_pct": 0.15,
+        }
+
+        assert compute_contribution_pct_for_year(contribution_details, 2031, pct_boost=0.03) == pytest.approx(0.09)
+        assert compute_contribution_pct_for_year(contribution_details, 2045, pct_boost=0.03) == pytest.approx(0.18)
+
 
 # ---------------------------------------------------------------------------
 # _annual_ira_contribution
@@ -261,6 +274,35 @@ class TestRetirementSpendingForYear:
 
         assert before_payoff == pytest.approx(145_000)
         assert after_payoff == pytest.approx(121_000)
+
+
+class TestMergeProjections:
+    def test_does_not_apply_phase_3_withdrawals_by_default(self):
+        df_401k = pd.DataFrame([
+            {"year": 2026, "age": 65, "phase": "Phase 3", "balance": 100_000.0, "total_contribution": 10_000.0},
+        ])
+        df_ira = pd.DataFrame([
+            {"year": 2026, "age": 65, "phase": "Phase 3", "ira_balance": 50_000.0, "ira_contribution": 7_000.0},
+        ])
+
+        merged = merge_projections(df_401k, df_ira)
+
+        assert float(merged.loc[0, "total_balance"]) == pytest.approx(150_000.0)
+        assert float(merged.loc[0, "withdrawal"]) == pytest.approx(0.0)
+
+    def test_can_apply_phase_3_withdrawals_when_requested(self):
+        df_401k = pd.DataFrame([
+            {"year": 2026, "age": 65, "phase": "Phase 3", "balance": 100_000.0, "total_contribution": 10_000.0},
+        ])
+        df_ira = pd.DataFrame([
+            {"year": 2026, "age": 65, "phase": "Phase 3", "ira_balance": 50_000.0, "ira_contribution": 7_000.0},
+        ])
+
+        merged = merge_projections(df_401k, df_ira, withdrawal_pct=0.06, apply_withdrawals=True)
+
+        assert float(merged.loc[0, "withdrawal"]) == pytest.approx(9_000.0)
+        assert float(merged.loc[0, "balance"]) == pytest.approx(91_000.0)
+        assert float(merged.loc[0, "ira_balance"]) == pytest.approx(50_000.0)
 
 
 # ---------------------------------------------------------------------------
