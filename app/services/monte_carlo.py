@@ -594,6 +594,14 @@ def _rating_for_probability(probability_pct: float) -> dict[str, Any]:
     return RATING_BANDS[-1]
 
 
+def _percentile(sorted_values: list[float], q: float) -> float:
+    """Return the q-th percentile from an already-sorted list."""
+    if not sorted_values:
+        return 0.0
+    idx = max(0, min(len(sorted_values) - 1, int(round(q * (len(sorted_values) - 1)))))
+    return float(sorted_values[idx])
+
+
 def _indexed_contribution_limit(base_limit: float, inflation: float, years_since_start: int) -> float:
     if base_limit <= 0:
         return 0.0
@@ -1060,6 +1068,34 @@ def run_stress_test(
     non_depleted_terminal_net_worth_balances: list[float] = []
     success_count = 0
 
+    # --- Precompute deterministic per-age quantities once ---
+    _precomputed_moments: dict[int, tuple] = {}
+    for _age in range(current_age, life_expectancy_age + 1):
+        (_m401k, _s401k), (_mira, _sira) = _account_phase_moments(
+            user_profile, _age, fund_moments, retirement_age,
+        )
+        _mhsa, _shsa = _hsa_phase_moments(user_profile, _age, fund_moments, retirement_age)
+        _precomputed_moments[_age] = (
+            (_m401k, _s401k * volatility_uplift),
+            (_mira, _sira * volatility_uplift),
+            (_mhsa, _shsa * volatility_uplift),
+        )
+
+    _precomputed_ss: dict[int, float] = {}
+    for _age in range(current_age, life_expectancy_age + 1):
+        if _age >= social_security_claim_age:
+            _yrs = _age - social_security_claim_age
+            _precomputed_ss[_age] = social_security_base_annual_income * ((1.0 + inflation) ** max(0, _yrs))
+        else:
+            _precomputed_ss[_age] = 0.0
+
+    _precomputed_spending: dict[int, tuple[float, float, float]] = {}
+    for _yi in range(years_to_simulate):
+        _sim_year = current_year + _yi
+        _precomputed_spending[_sim_year] = _retirement_spending_for_year(
+            individual_spending_config, _sim_year, inflation,
+        )
+
     for sim in range(simulation_count):
         rng = random.Random(random_seed + sim if random_seed is not None else None)
 
@@ -1094,21 +1130,7 @@ def run_stress_test(
             # Capture equity before advancing housing state, then advance once per year.
             housing_equity = housing_total_equity(housing_asset_states)
             rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
-            (mu_401k, sigma_401k), (mu_ira, sigma_ira) = _account_phase_moments(
-                user_profile,
-                age,
-                fund_moments,
-                retirement_age,
-            )
-            mu_hsa, sigma_hsa = _hsa_phase_moments(
-                user_profile,
-                age,
-                fund_moments,
-                retirement_age,
-            )
-            sigma_401k *= volatility_uplift
-            sigma_ira *= volatility_uplift
-            sigma_hsa *= volatility_uplift
+            (mu_401k, sigma_401k), (mu_ira, sigma_ira), (mu_hsa, sigma_hsa) = _precomputed_moments[age]
 
             # Sequence risk mechanics:
             # 1) fat-tail draw
@@ -1152,16 +1174,9 @@ def run_stress_test(
                 else:
                     annual_withdrawal *= (1.0 + inflation)
 
-                social_security_income = 0.0
-                if age >= social_security_claim_age:
-                    years_since_claim = age - social_security_claim_age
-                    social_security_income = social_security_base_annual_income * ((1.0 + inflation) ** max(0, years_since_claim))
+                social_security_income = _precomputed_ss.get(age, 0.0)
 
-                _, medical_spending, _ = _retirement_spending_for_year(
-                    individual_spending_config,
-                    current_year + year_idx,
-                    inflation,
-                )
+                _, medical_spending, _ = _precomputed_spending[current_year + year_idx]
                 withdrawal_hsa = _eligible_hsa_withdrawal(
                     annual_withdrawal,
                     medical_spending,
@@ -1253,12 +1268,9 @@ def run_stress_test(
             success_count += 1
 
     terminal_balances.sort()
-
-    def percentile(values: list[float], q: float) -> float:
-        if not values:
-            return 0.0
-        idx = max(0, min(len(values) - 1, int(round(q * (len(values) - 1)))))
-        return float(values[idx])
+    sorted_retirement_portfolio = sorted(retirement_portfolio_balances)
+    sorted_non_depleted_portfolio = sorted(non_depleted_terminal_portfolio_balances)
+    sorted_non_depleted_net_worth = sorted(non_depleted_terminal_net_worth_balances)
 
     success_probability = (success_count / simulation_count) * 100.0
     rating = _rating_for_probability(success_probability)
@@ -1379,16 +1391,16 @@ def run_stress_test(
             } if individual_spending_config else None,
             "coverage_at_p50": {
                 "p50_portfolio_at_retirement": round(
-                    percentile(sorted(retirement_portfolio_balances), 0.50), 2
+                    _percentile(sorted_retirement_portfolio, 0.50), 2
                 ),
                 "configured_withdrawal_rate": withdrawal_pct,
                 "p50_annual_withdrawal": round(
-                    percentile(sorted(retirement_portfolio_balances), 0.50) * withdrawal_pct, 2
+                    _percentile(sorted_retirement_portfolio, 0.50) * withdrawal_pct, 2
                 ),
                 "spending_need_at_retirement": round(adj_spending_at_retirement, 2),
                 "coverage_ratio": round(
                     (
-                        percentile(sorted(retirement_portfolio_balances), 0.50)
+                        _percentile(sorted_retirement_portfolio, 0.50)
                         * withdrawal_pct
                     ) / adj_spending_at_retirement,
                     3,
@@ -1431,21 +1443,21 @@ def run_stress_test(
         "outcome_percentiles": {
             "retirement": {
                 "label": "At Retirement (Portfolio)",
-                "p10": round(percentile(sorted(retirement_portfolio_balances), 0.10), 2),
-                "p50": round(percentile(sorted(retirement_portfolio_balances), 0.50), 2),
-                "p90": round(percentile(sorted(retirement_portfolio_balances), 0.90), 2),
+                "p10": round(_percentile(sorted_retirement_portfolio, 0.10), 2),
+                "p50": round(_percentile(sorted_retirement_portfolio, 0.50), 2),
+                "p90": round(_percentile(sorted_retirement_portfolio, 0.90), 2),
             },
             "life": {
                 "label": "At Life Expectancy (Portfolio)",
-                "p10": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.10), 2),
-                "p50": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.50), 2),
-                "p90": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.90), 2),
+                "p10": round(_percentile(sorted_non_depleted_portfolio, 0.10), 2),
+                "p50": round(_percentile(sorted_non_depleted_portfolio, 0.50), 2),
+                "p90": round(_percentile(sorted_non_depleted_portfolio, 0.90), 2),
             },
             "life_net_worth": {
                 "label": "At Life Expectancy (Portfolio + Housing)",
-                "p10": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.10), 2),
-                "p50": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.50), 2),
-                "p90": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.90), 2),
+                "p10": round(_percentile(sorted_non_depleted_net_worth, 0.10), 2),
+                "p50": round(_percentile(sorted_non_depleted_net_worth, 0.50), 2),
+                "p90": round(_percentile(sorted_non_depleted_net_worth, 0.90), 2),
             },
         },
     }
@@ -1463,9 +1475,9 @@ def run_stress_test(
         rating_label=rating["label"],
         life_expectancy_age=life_expectancy_age,
         success_threshold_pct=DEFAULT_SUCCESS_THRESHOLD_PCT,
-        p10_terminal_balance=round(percentile(terminal_balances, 0.10), 2),
-        p50_terminal_balance=round(percentile(terminal_balances, 0.50), 2),
-        p90_terminal_balance=round(percentile(terminal_balances, 0.90), 2),
+        p10_terminal_balance=round(_percentile(terminal_balances, 0.10), 2),
+        p50_terminal_balance=round(_percentile(terminal_balances, 0.50), 2),
+        p90_terminal_balance=round(_percentile(terminal_balances, 0.90), 2),
         assumptions_json=assumptions,
     )
 
@@ -1691,6 +1703,38 @@ def run_joint_stress_test(
     non_depleted_terminal_net_worth_balances: list[float] = []
     success_count = 0
 
+    # --- Precompute deterministic per-member per-age quantities once ---
+    _jt_precomputed_moments: dict[int, dict[int, tuple]] = {}
+    for i, profile in enumerate(profiles):
+        _jt_precomputed_moments[i] = {}
+        for _age in range(current_ages[i], life_expectancy_age + 1):
+            (_m401k, _s401k), (_mira, _sira) = _account_phase_moments(
+                profile, _age, fund_moments, retirement_ages[i],
+            )
+            _mhsa, _shsa = _hsa_phase_moments(profile, _age, fund_moments, retirement_ages[i])
+            _jt_precomputed_moments[i][_age] = (
+                (_m401k, _s401k * volatility_uplift),
+                (_mira, _sira * volatility_uplift),
+                (_mhsa, _shsa * volatility_uplift),
+            )
+
+    _jt_precomputed_ss: dict[int, dict[int, float]] = {}
+    for i in range(len(profiles)):
+        _jt_precomputed_ss[i] = {}
+        for _age in range(current_ages[i], life_expectancy_age + 1):
+            if _age >= social_security_claim_ages[i]:
+                _yrs = _age - social_security_claim_ages[i]
+                _jt_precomputed_ss[i][_age] = social_security_base_annual_incomes[i] * ((1.0 + inflation) ** max(0, _yrs))
+            else:
+                _jt_precomputed_ss[i][_age] = 0.0
+
+    _jt_precomputed_spending: dict[int, tuple[float, float, float]] = {}
+    for _yi in range(years_to_simulate):
+        _sim_year = current_year + _yi
+        _jt_precomputed_spending[_sim_year] = _retirement_spending_for_year(
+            household_retirement_spending, _sim_year, inflation,
+        )
+
     for sim in range(simulation_count):
         rng = random.Random(random_seed + sim if random_seed is not None else None)
 
@@ -1786,23 +1830,16 @@ def run_joint_stress_test(
 
                 annual_withdrawal = annual_withdrawal_rule_based
                 if base_retirement_spending_annual > 0.0:
-                    _, _, annual_spending_goal = _retirement_spending_for_year(
-                        household_retirement_spending,
-                        simulation_year,
-                        inflation,
-                    )
+                    _, _, annual_spending_goal = _jt_precomputed_spending[simulation_year]
                     if enforce_retirement_spending_floor:
                         annual_withdrawal = max(annual_withdrawal, annual_spending_goal)
                     else:
                         annual_withdrawal = annual_spending_goal
 
-            household_social_security_income = 0.0
-            for i in range(len(profiles)):
-                if ages[i] >= social_security_claim_ages[i]:
-                    years_since_claim = ages[i] - social_security_claim_ages[i]
-                    household_social_security_income += social_security_base_annual_incomes[i] * (
-                        (1.0 + inflation) ** max(0, years_since_claim)
-                    )
+            household_social_security_income = sum(
+                _jt_precomputed_ss[i].get(ages[i], 0.0)
+                for i in range(len(profiles))
+            )
 
             annual_portfolio_withdrawal = (
                 max(annual_withdrawal - household_social_security_income - rental_net_cashflow, 0.0)
@@ -1812,11 +1849,7 @@ def run_joint_stress_test(
 
             household_hsa_withdrawals = [0.0] * len(profiles)
             if all_members_retired and household_retirement_spending:
-                _, annual_medical_spending, _ = _retirement_spending_for_year(
-                    household_retirement_spending,
-                    simulation_year,
-                    inflation,
-                )
+                _, annual_medical_spending, _ = _jt_precomputed_spending[simulation_year]
                 total_hsa_balance = sum(max(balance, 0.0) for balance in bals_hsa)
                 total_hsa_relief = _eligible_hsa_withdrawal(
                     annual_withdrawal,
@@ -1891,21 +1924,7 @@ def run_joint_stress_test(
 
             # ------ Per-member account updates ------
             for i, profile in enumerate(profiles):
-                (mu_401k, sigma_401k), (mu_ira, sigma_ira) = _account_phase_moments(
-                    profile,
-                    ages[i],
-                    fund_moments,
-                    retirement_ages[i],
-                )
-                mu_hsa, sigma_hsa = _hsa_phase_moments(
-                    profile,
-                    ages[i],
-                    fund_moments,
-                    retirement_ages[i],
-                )
-                sigma_401k *= volatility_uplift
-                sigma_ira *= volatility_uplift
-                sigma_hsa *= volatility_uplift
+                (mu_401k, sigma_401k), (mu_ira, sigma_ira), (mu_hsa, sigma_hsa) = _jt_precomputed_moments[i][ages[i]]
 
                 # Allocate household withdrawal proportionally to this member's share.
                 member_total = bals_401k[i] + bals_ira[i] + bals_income[i]
@@ -1974,12 +1993,9 @@ def run_joint_stress_test(
             success_count += 1
 
     terminal_balances.sort()
-
-    def percentile(values: list[float], q: float) -> float:
-        if not values:
-            return 0.0
-        idx = max(0, min(len(values) - 1, int(round(q * (len(values) - 1)))))
-        return float(values[idx])
+    sorted_retirement_portfolio = sorted(retirement_portfolio_balances)
+    sorted_non_depleted_portfolio = sorted(non_depleted_terminal_portfolio_balances)
+    sorted_non_depleted_net_worth = sorted(non_depleted_terminal_net_worth_balances)
 
     success_probability = (success_count / simulation_count) * 100.0
     rating = _rating_for_probability(success_probability)
@@ -2087,21 +2103,21 @@ def run_joint_stress_test(
         "outcome_percentiles": {
             "retirement": {
                 "label": "At Retirement (Household Portfolio)",
-                "p10": round(percentile(sorted(retirement_portfolio_balances), 0.10), 2),
-                "p50": round(percentile(sorted(retirement_portfolio_balances), 0.50), 2),
-                "p90": round(percentile(sorted(retirement_portfolio_balances), 0.90), 2),
+                "p10": round(_percentile(sorted_retirement_portfolio, 0.10), 2),
+                "p50": round(_percentile(sorted_retirement_portfolio, 0.50), 2),
+                "p90": round(_percentile(sorted_retirement_portfolio, 0.90), 2),
             },
             "life": {
                 "label": "At Life Expectancy (Household Portfolio)",
-                "p10": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.10), 2),
-                "p50": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.50), 2),
-                "p90": round(percentile(sorted(non_depleted_terminal_portfolio_balances), 0.90), 2),
+                "p10": round(_percentile(sorted_non_depleted_portfolio, 0.10), 2),
+                "p50": round(_percentile(sorted_non_depleted_portfolio, 0.50), 2),
+                "p90": round(_percentile(sorted_non_depleted_portfolio, 0.90), 2),
             },
             "life_net_worth": {
                 "label": "At Life Expectancy (Household + Housing)",
-                "p10": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.10), 2),
-                "p50": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.50), 2),
-                "p90": round(percentile(sorted(non_depleted_terminal_net_worth_balances), 0.90), 2),
+                "p10": round(_percentile(sorted_non_depleted_net_worth, 0.10), 2),
+                "p50": round(_percentile(sorted_non_depleted_net_worth, 0.50), 2),
+                "p90": round(_percentile(sorted_non_depleted_net_worth, 0.90), 2),
             },
         },
         "members": members_snapshot,
@@ -2134,9 +2150,9 @@ def run_joint_stress_test(
         rating_label=rating["label"],
         life_expectancy_age=life_expectancy_age,
         success_threshold_pct=DEFAULT_SUCCESS_THRESHOLD_PCT,
-        p10_terminal_balance=round(percentile(terminal_balances, 0.10), 2),
-        p50_terminal_balance=round(percentile(terminal_balances, 0.50), 2),
-        p90_terminal_balance=round(percentile(terminal_balances, 0.90), 2),
+        p10_terminal_balance=round(_percentile(terminal_balances, 0.10), 2),
+        p50_terminal_balance=round(_percentile(terminal_balances, 0.50), 2),
+        p90_terminal_balance=round(_percentile(terminal_balances, 0.90), 2),
         assumptions_json=assumptions,
     )
 
