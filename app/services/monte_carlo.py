@@ -1704,10 +1704,13 @@ def run_joint_stress_test(
     success_count = 0
 
     # --- Precompute deterministic per-member per-age quantities once ---
+    # Each member may exceed life_expectancy_age when older members are
+    # simulated until the youngest reaches life expectancy.
     _jt_precomputed_moments: dict[int, dict[int, tuple]] = {}
     for i, profile in enumerate(profiles):
         _jt_precomputed_moments[i] = {}
-        for _age in range(current_ages[i], life_expectancy_age + 1):
+        _max_age_i = current_ages[i] + years_to_simulate
+        for _age in range(current_ages[i], _max_age_i):
             (_m401k, _s401k), (_mira, _sira) = _account_phase_moments(
                 profile, _age, fund_moments, retirement_ages[i],
             )
@@ -1721,7 +1724,8 @@ def run_joint_stress_test(
     _jt_precomputed_ss: dict[int, dict[int, float]] = {}
     for i in range(len(profiles)):
         _jt_precomputed_ss[i] = {}
-        for _age in range(current_ages[i], life_expectancy_age + 1):
+        _max_age_i = current_ages[i] + years_to_simulate
+        for _age in range(current_ages[i], _max_age_i):
             if _age >= social_security_claim_ages[i]:
                 _yrs = _age - social_security_claim_ages[i]
                 _jt_precomputed_ss[i][_age] = social_security_base_annual_incomes[i] * ((1.0 + inflation) ** max(0, _yrs))
