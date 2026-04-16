@@ -4,6 +4,14 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from ..models import User, Account, ActualBalance
+from .monte_carlo import (
+    AssetMoments,
+    _build_fund_moments,
+    _is_bond_like_ticker,
+    _normalize_allocation_weights,
+    _pick_phase,
+    _rebalance_allocation_to_bond_target,
+)
 from .projection import get_user_projection
 from lib.calculator_utils import (
     compute_contribution_pct_for_year,
@@ -12,6 +20,8 @@ from lib.calculator_utils import (
 
 
 ACTUAL_BALANCE_YEAR_OFFSET = -1
+DEFAULT_SEQUENCE_RISK_RETURNS = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025]
+BOND_SEQUENCE_RISK_RETURNS = [0.04, 0.035, 0.03, 0.028, 0.03, 0.032, 0.03, 0.028, 0.026, 0.025]
 
 
 def _parse_joint_usernames(username: str) -> list[str] | None:
@@ -126,6 +136,138 @@ def _normalize_actual_balance_year(stored_year: int) -> int:
 
 def _normalize_chart_seed_year(stored_year: int) -> int:
     return _normalize_actual_balance_year(stored_year)
+
+
+def _first_point_at_or_after_year(projected: list[dict], target_year: int) -> dict | None:
+    if not projected:
+        return None
+
+    for point in sorted(projected, key=lambda item: int(item.get("year", 0))):
+        if int(point.get("year", 0)) >= target_year:
+            return point
+
+    return max(projected, key=lambda item: int(item.get("year", 0)))
+
+
+def _allocation_sequence_risk_returns(
+    allocation: dict,
+    fund_moments: dict[str, AssetMoments],
+) -> list[float]:
+    normalized = _normalize_allocation_weights(allocation)
+    if not normalized:
+        return list(DEFAULT_SEQUENCE_RISK_RETURNS)
+
+    returns: list[float] = []
+    for year_idx in range(len(DEFAULT_SEQUENCE_RISK_RETURNS)):
+        annual_return = 0.0
+
+        for asset in normalized.values():
+            weight = float(asset.get("pct", 0.0))
+            ticker = str(asset.get("ticker", "")).upper()
+            moments = fund_moments.get(ticker, AssetMoments(mean_return=0.06, volatility=0.12))
+            is_bond = _is_bond_like_ticker(ticker)
+            template = BOND_SEQUENCE_RISK_RETURNS if is_bond else DEFAULT_SEQUENCE_RISK_RETURNS
+            template_value = float(template[year_idx])
+            template_avg = sum(template) / len(template)
+
+            reference_volatility = 0.06 if is_bond else 0.18
+            volatility_scale = max(0.6, min(1.15, moments.volatility / reference_volatility))
+            centered_template_value = template_avg + ((template_value - template_avg) * volatility_scale)
+            mean_adjustment = (moments.mean_return - template_avg) * 0.25
+            adjusted_return = centered_template_value + mean_adjustment
+
+            if is_bond:
+                adjusted_return = max(-0.05, min(0.08, adjusted_return))
+            else:
+                adjusted_return = max(-0.30, min(0.10, adjusted_return))
+
+            annual_return += weight * adjusted_return
+
+        returns.append(round(annual_return, 4))
+
+    return returns
+
+
+def _sequence_risk_returns_for_projected_portfolio(
+    profile: dict,
+    projected: list[dict],
+    *,
+    current_year: int = 2026,
+    fund_moments: dict[str, AssetMoments] | None = None,
+) -> list[float]:
+    retirement_age = int(profile.get("retirement_age", 65))
+    current_age = int(profile.get("age", 35))
+    retirement_year = current_year + max(0, retirement_age - current_age)
+    retirement_point = _first_point_at_or_after_year(projected, retirement_year)
+    if not retirement_point:
+        return list(DEFAULT_SEQUENCE_RISK_RETURNS)
+
+    account_balances = retirement_point.get("account_balances", {}) or {}
+    fund_moments = fund_moments or _build_fund_moments()
+
+    account_configs = [
+        ("401k", profile.get("401k_phases", {})),
+        ("roth_ira", profile.get("ira_phases", {})),
+    ]
+    weighted_paths: list[tuple[float, list[float]]] = []
+    total_balance = 0.0
+
+    for account_key, phases in account_configs:
+        balance = float(account_balances.get(account_key, 0.0) or 0.0)
+        if balance <= 0.0 or not phases:
+            continue
+
+        phase = _pick_phase(phases, retirement_age)
+        allocation = _rebalance_allocation_to_bond_target(phase.get("allocation", {}))
+        if not allocation:
+            continue
+
+        weighted_paths.append(
+            (balance, _allocation_sequence_risk_returns(allocation, fund_moments))
+        )
+        total_balance += balance
+
+    if total_balance <= 0.0 or not weighted_paths:
+        return list(DEFAULT_SEQUENCE_RISK_RETURNS)
+
+    path_length = len(weighted_paths[0][1])
+    blended = []
+    for idx in range(path_length):
+        annual_return = sum(
+            (balance / total_balance) * path[idx]
+            for balance, path in weighted_paths
+        )
+        blended.append(round(annual_return, 4))
+
+    return blended
+
+
+def _retirement_balance_for_weighting(
+    projected: list[dict],
+    retirement_year: int,
+) -> float:
+    point = _first_point_at_or_after_year(projected, retirement_year)
+    if not point:
+        return 0.0
+    return float(point.get("balance", 0.0) or 0.0)
+
+
+def _blend_sequence_risk_returns(weighted_paths: list[tuple[float, list[float]]]) -> list[float]:
+    valid_paths = [(weight, path) for weight, path in weighted_paths if weight > 0 and path]
+    if not valid_paths:
+        return list(DEFAULT_SEQUENCE_RISK_RETURNS)
+
+    total_weight = sum(weight for weight, _ in valid_paths)
+    if total_weight <= 0.0:
+        return list(DEFAULT_SEQUENCE_RISK_RETURNS)
+
+    path_length = len(valid_paths[0][1])
+    blended = []
+    for idx in range(path_length):
+        annual_return = sum((weight / total_weight) * path[idx] for weight, path in valid_paths)
+        blended.append(round(annual_return, 4))
+
+    return blended
 
 
 def _aggregate_projected_series(series_list: list[list[dict]]) -> list[dict]:
@@ -575,6 +717,18 @@ def get_comparison_data(
             "retirement_year": max(int(result.get("retirement_year", current_year)) for result in member_results),
             "life_expectancy_age": max(int(result.get("life_expectancy_age", 88)) for result in member_results),
             "withdrawal_pct": float(member_results[0].get("withdrawal_pct", 0.05)) if member_results else 0.05,
+            "sequence_risk_returns": _blend_sequence_risk_returns(
+                [
+                    (
+                        _retirement_balance_for_weighting(
+                            result.get("projected", []),
+                            int(result.get("retirement_year", current_year)),
+                        ),
+                        result.get("sequence_risk_returns", list(DEFAULT_SEQUENCE_RISK_RETURNS)),
+                    )
+                    for result in member_results
+                ]
+            ),
         }
 
     # Get projected data from calculator engine
@@ -628,6 +782,11 @@ def get_comparison_data(
         "retirement_year": retirement_year,
         "life_expectancy_age": life_expectancy_age,
         "withdrawal_pct": withdrawal_pct,
+        "sequence_risk_returns": _sequence_risk_returns_for_projected_portfolio(
+            profile,
+            projected,
+            current_year=current_year,
+        ),
     }
 
 
@@ -667,6 +826,7 @@ def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
                     "retirement_year": comparison.get("retirement_year"),
                     "life_expectancy_age": comparison.get("life_expectancy_age"),
                     "withdrawal_pct": comparison.get("withdrawal_pct"),
+                    "sequence_risk_returns": comparison.get("sequence_risk_returns"),
                 }
             )
         except Exception:
@@ -692,6 +852,7 @@ def get_all_users_comparison(db: Session, current_year: int = 2026) -> dict:
                     "retirement_year": household.get("retirement_year"),
                     "life_expectancy_age": household.get("life_expectancy_age"),
                     "withdrawal_pct": household.get("withdrawal_pct"),
+                    "sequence_risk_returns": household.get("sequence_risk_returns"),
                     "is_portfolio": True,
                 }
             )

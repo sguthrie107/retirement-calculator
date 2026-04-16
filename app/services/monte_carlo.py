@@ -72,6 +72,9 @@ TICKER_ALIASES = {
     "VFIAX": "FXAIX",
     "VTIAX": "FZILX",
     "VBTLX": "FXNAX",
+    "VOO": "FXAIX",
+    "VXUS": "FZILX",
+    "BND": "FXNAX",
 }
 
 BOGLEHEAD_3_FUND_ALLOCATION = (
@@ -408,27 +411,52 @@ def _allocation_moments(allocation: dict[str, Any], fund_moments: dict[str, Asse
     return weighted_mean, math.sqrt(max(weighted_variance, 1e-8))
 
 
+def _phase_moments(
+    phases: dict[str, Any],
+    age: int,
+    fund_moments: dict[str, AssetMoments],
+    retirement_age: int,
+) -> tuple[float, float]:
+    phase = _pick_phase(phases, age)
+    allocation = phase.get("allocation", {})
+
+    # Professional-style retirement rebalance target: 60/40 equity/bond mix at retirement+.
+    if age >= retirement_age:
+        allocation = _rebalance_allocation_to_bond_target(allocation)
+
+    return _allocation_moments(allocation, fund_moments)
+
+
 def _account_phase_moments(
     user_profile: dict[str, Any],
     age: int,
     fund_moments: dict[str, AssetMoments],
     retirement_age: int,
 ) -> tuple[tuple[float, float], tuple[float, float]]:
-    k401_phase = _pick_phase(user_profile.get("401k_phases", {}), age)
-    ira_phase = _pick_phase(user_profile.get("ira_phases", {}), age)
-
-    k401_allocation = k401_phase.get("allocation", {})
-    ira_allocation = ira_phase.get("allocation", {})
-
-    # Professional-style retirement rebalance target: 60/40 equity/bond mix at retirement+.
-    if age >= retirement_age:
-        k401_allocation = _rebalance_allocation_to_bond_target(k401_allocation)
-        ira_allocation = _rebalance_allocation_to_bond_target(ira_allocation)
-
-    k401_mu, k401_sigma = _allocation_moments(k401_allocation, fund_moments)
-    ira_mu, ira_sigma = _allocation_moments(ira_allocation, fund_moments)
+    k401_mu, k401_sigma = _phase_moments(
+        user_profile.get("401k_phases", {}),
+        age,
+        fund_moments,
+        retirement_age,
+    )
+    ira_mu, ira_sigma = _phase_moments(
+        user_profile.get("ira_phases", {}),
+        age,
+        fund_moments,
+        retirement_age,
+    )
 
     return (k401_mu, k401_sigma), (ira_mu, ira_sigma)
+
+
+def _hsa_phase_moments(
+    user_profile: dict[str, Any],
+    age: int,
+    fund_moments: dict[str, AssetMoments],
+    retirement_age: int,
+) -> tuple[float, float]:
+    hsa_phases = user_profile.get("hsa_phases") or user_profile.get("ira_phases", {})
+    return _phase_moments(hsa_phases, age, fund_moments, retirement_age)
 
 
 def _boglehead_income_moments(fund_moments: dict[str, AssetMoments]) -> tuple[float, float]:
@@ -490,6 +518,12 @@ def _starting_balances(db: Session, db_user: User, user_profile: dict[str, Any])
     bal_ira = latest_ira if latest_ira is not None else float(user_profile.get("current_ira_balance", 0.0))
 
     return max(bal_401k, 0.0), max(bal_ira, 0.0)
+
+
+def _starting_hsa_balance(db: Session, db_user: User, user_profile: dict[str, Any]) -> float:
+    latest_hsa = _latest_actual_balance_for_account(db, db_user.id, "hsa")
+    bal_hsa = latest_hsa if latest_hsa is not None else float(user_profile.get("current_hsa_balance", 0.0))
+    return max(bal_hsa, 0.0)
 
 
 def _student_t(rng: random.Random, degrees_of_freedom: int = 7) -> float:
@@ -704,6 +738,43 @@ def _annual_ira_contribution(
     return max(ira_contribution, 0.0)
 
 
+def _annual_hsa_contribution(
+    user_profile: dict[str, Any],
+    calendar_year: int | None,
+    *,
+    inflation: float = 0.0,
+) -> float:
+    contribution = user_profile.get("contribution_details", {})
+    monthly_hsa = float(contribution.get("hsa_monthly_contribution", 0.0) or 0.0)
+    if monthly_hsa <= 0.0:
+        return 0.0
+
+    start_year_raw = contribution.get("hsa_contribution_start_year")
+    end_year_raw = contribution.get("hsa_contribution_end_year")
+
+    if calendar_year is not None and start_year_raw is not None and calendar_year < int(start_year_raw):
+        return 0.0
+    if calendar_year is not None and end_year_raw is not None and calendar_year > int(end_year_raw):
+        return 0.0
+
+    growth_pct = float(contribution.get("hsa_contribution_growth_pct", inflation) or 0.0)
+    if calendar_year is not None and start_year_raw is not None:
+        years_since_hsa_start = max(0, int(calendar_year) - int(start_year_raw))
+    else:
+        years_since_hsa_start = 0
+
+    annual_hsa = (monthly_hsa * 12.0) * ((1.0 + growth_pct) ** years_since_hsa_start)
+    annual_limit = contribution.get("annual_hsa_contribution_limit")
+    if annual_limit is not None:
+        annual_hsa = min(annual_hsa, float(annual_limit))
+
+    return max(annual_hsa, 0.0)
+
+
+def _eligible_hsa_withdrawal(planned_withdrawal: float, medical_spending: float, available_balance: float) -> float:
+    return min(max(planned_withdrawal, 0.0), max(medical_spending, 0.0), max(available_balance, 0.0))
+
+
 def _apply_second_career_transition(
     salary: float,
     age: int,
@@ -872,7 +943,8 @@ def run_stress_test(
     household_assets = load_household_assets_for_user(username)
 
     start_401k, start_ira = _starting_balances(db, db_user, user_profile)
-    start_total_balance = start_401k + start_ira
+    start_hsa = _starting_hsa_balance(db, db_user, user_profile)
+    start_total_balance = start_401k + start_ira + start_hsa
 
     current_age = int(user_profile.get("age", 35))
     retirement_age = int(user_profile.get("retirement_age", 65))
@@ -948,13 +1020,30 @@ def run_stress_test(
         fund_moments,
         retirement_age,
     )
-    account_weight_401k = start_401k / start_total_balance if start_total_balance > 0 else 0.5
-    account_weight_ira = 1.0 - account_weight_401k
-    blended_mean = (account_weight_401k * mu_401k_now) + (account_weight_ira * mu_ira_now)
+    mu_hsa_now, sigma_hsa_now = _hsa_phase_moments(
+        user_profile,
+        current_age,
+        fund_moments,
+        retirement_age,
+    )
+    if start_total_balance > 0:
+        account_weight_401k = start_401k / start_total_balance
+        account_weight_ira = start_ira / start_total_balance
+        account_weight_hsa = start_hsa / start_total_balance
+    else:
+        account_weight_401k = 1.0 / 3.0
+        account_weight_ira = 1.0 / 3.0
+        account_weight_hsa = 1.0 / 3.0
+    blended_mean = (
+        (account_weight_401k * mu_401k_now)
+        + (account_weight_ira * mu_ira_now)
+        + (account_weight_hsa * mu_hsa_now)
+    )
     blended_vol = _blended_portfolio_volatility(
         [
             (account_weight_401k, sigma_401k_now),
             (account_weight_ira, sigma_ira_now),
+            (account_weight_hsa, sigma_hsa_now),
         ]
     )
     target_volatility = DEFAULT_TARGET_VOLATILITY_PCT / 100.0
@@ -987,6 +1076,7 @@ def run_stress_test(
             salary_transition_applied = True
         bal_401k = start_401k
         bal_ira = start_ira
+        bal_hsa = start_hsa
         bal_income = 0.0
         housing_asset_states = initialize_rental_asset_states(household_assets)
 
@@ -999,7 +1089,8 @@ def run_stress_test(
         failed = False
 
         for year_idx in range(years_to_simulate):
-            total_balance = max(bal_401k + bal_ira + bal_income, 0.0)
+            spendable_balance = max(bal_401k + bal_ira + bal_income, 0.0)
+            total_balance = spendable_balance + max(bal_hsa, 0.0)
             # Capture equity before advancing housing state, then advance once per year.
             housing_equity = housing_total_equity(housing_asset_states)
             rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
@@ -1009,8 +1100,15 @@ def run_stress_test(
                 fund_moments,
                 retirement_age,
             )
+            mu_hsa, sigma_hsa = _hsa_phase_moments(
+                user_profile,
+                age,
+                fund_moments,
+                retirement_age,
+            )
             sigma_401k *= volatility_uplift
             sigma_ira *= volatility_uplift
+            sigma_hsa *= volatility_uplift
 
             # Sequence risk mechanics:
             # 1) fat-tail draw
@@ -1028,6 +1126,7 @@ def run_stress_test(
 
             contribution = 0.0
             withdrawal = 0.0
+            withdrawal_hsa = 0.0
 
             if age < retirement_age:
                 salary, salary_transition_applied = _apply_second_career_transition(
@@ -1049,7 +1148,7 @@ def run_stress_test(
                 if retirement_start_balance is None:
                     retirement_start_balance = total_balance + housing_equity
                     retirement_portfolio_balances.append(total_balance)
-                    annual_withdrawal = total_balance * withdrawal_pct
+                    annual_withdrawal = spendable_balance * withdrawal_pct
                 else:
                     annual_withdrawal *= (1.0 + inflation)
 
@@ -1058,8 +1157,21 @@ def run_stress_test(
                     years_since_claim = age - social_security_claim_age
                     social_security_income = social_security_base_annual_income * ((1.0 + inflation) ** max(0, years_since_claim))
 
+                _, medical_spending, _ = _retirement_spending_for_year(
+                    individual_spending_config,
+                    current_year + year_idx,
+                    inflation,
+                )
+                withdrawal_hsa = _eligible_hsa_withdrawal(
+                    annual_withdrawal,
+                    medical_spending,
+                    bal_hsa,
+                )
                 # Positive rental income offsets retirement draw; negative net rental cashflow increases it.
-                withdrawal = max(annual_withdrawal - social_security_income - rental_net_cashflow, 0.0)
+                withdrawal = max(
+                    annual_withdrawal - social_security_income - rental_net_cashflow - withdrawal_hsa,
+                    0.0,
+                )
 
             # Route contributions to their proper account buckets.
             # 401k employee+match → bal_401k, IRA → bal_ira, rental income → bal_income.
@@ -1074,6 +1186,15 @@ def run_stress_test(
                 if age < retirement_age
                 else 0.0
             )
+            contribution_hsa = (
+                _annual_hsa_contribution(
+                    user_profile,
+                    current_year + year_idx,
+                    inflation=inflation,
+                )
+                if age < retirement_age
+                else 0.0
+            )
             # Rental income is an investable cash flow; in retirement it already offsets withdrawal above.
             contribution_income = rental_net_cashflow if age < retirement_age else 0.0
 
@@ -1084,26 +1205,30 @@ def run_stress_test(
             # Mid-period cashflow convention avoids overstating or understating timing impacts.
             effective_401k = max(bal_401k + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
             effective_ira = max(bal_ira + 0.5 * (contribution_ira - withdrawal_ira), 0.0)
+            effective_hsa = max(bal_hsa + 0.5 * (contribution_hsa - withdrawal_hsa), 0.0)
             effective_income = max(bal_income + 0.5 * (contribution_income - withdrawal_income), 0.0)
 
             r_401k = _draw_annual_return(mu_401k, sigma_401k, normalized_shock)
             r_ira = _draw_annual_return(mu_ira, sigma_ira, normalized_shock)
+            r_hsa = _draw_annual_return(mu_hsa, sigma_hsa, normalized_shock)
             r_income = _draw_annual_return(income_mu, income_sigma, normalized_shock)
 
             bal_401k = max((effective_401k * (1.0 + r_401k)) + 0.5 * (contribution_401k - withdrawal_401k), 0.0)
             bal_ira = max((effective_ira * (1.0 + r_ira)) + 0.5 * (contribution_ira - withdrawal_ira), 0.0)
+            bal_hsa = max((effective_hsa * (1.0 + r_hsa)) + 0.5 * (contribution_hsa - withdrawal_hsa), 0.0)
             bal_income = max((effective_income * (1.0 + r_income)) + 0.5 * (contribution_income - withdrawal_income), 0.0)
 
-            if (bal_401k + bal_ira + bal_income) <= 1.0:
+            if (bal_401k + bal_ira + bal_hsa + bal_income) <= 1.0:
                 failed = True
                 bal_401k = 0.0
                 bal_ira = 0.0
+                bal_hsa = 0.0
                 bal_income = 0.0
                 break
 
             age += 1
 
-        terminal_portfolio_balance = bal_401k + bal_ira + bal_income
+        terminal_portfolio_balance = bal_401k + bal_ira + bal_hsa + bal_income
         terminal_balance = terminal_portfolio_balance + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
         terminal_portfolio_balances.append(terminal_portfolio_balance)
@@ -1152,6 +1277,7 @@ def run_stress_test(
         },
         "cashflow": {
             "contribution_schedule": "Pre-retirement annual salary-based 401k contribution with employer match plus inflation-indexed IRA annual contributions",
+            "hsa_contribution_schedule": "Optional monthly HSA contributions begin in the configured year and HSA assets can offset retirement medical spending before portfolio withdrawals.",
             "withdrawal_phase": "Retirement withdrawals begin at retirement age and grow with inflation",
             "withdrawal_rate": withdrawal_pct,
             "withdrawal_strategy": withdrawal_strategy,
@@ -1203,8 +1329,14 @@ def run_stress_test(
                     "annual_ira_catch_up_limit",
                     DEFAULT_IRA_CATCH_UP_LIMIT,
                 ),
+                "hsa_monthly_contribution": contribution_details.get("hsa_monthly_contribution", 0.0),
+                "hsa_contribution_start_year": contribution_details.get("hsa_contribution_start_year"),
+                "hsa_contribution_end_year": contribution_details.get("hsa_contribution_end_year"),
+                "hsa_contribution_growth_pct": contribution_details.get("hsa_contribution_growth_pct", inflation),
+                "annual_hsa_contribution_limit": contribution_details.get("annual_hsa_contribution_limit"),
             },
             "social_security_offsets_withdrawals": True,
+            "hsa_offsets_medical_spending": True,
             "income_investment_strategy": "All modeled income cashflows are invested to a Boglehead 3-fund portfolio (FXAIX/FZILX/FXNAX).",
         },
         "social_security": {
@@ -1290,6 +1422,7 @@ def run_stress_test(
         "portfolio_snapshot": {
             "starting_401k_balance": round(start_401k, 2),
             "starting_ira_balance": round(start_ira, 2),
+            "starting_hsa_balance": round(start_hsa, 2),
             "starting_total_balance": round(start_total_balance, 2),
             "blended_expected_return_pct": round(blended_mean * 100.0, 3),
             "blended_volatility_pct": round(effective_blended_vol * 100.0, 3),
@@ -1372,7 +1505,8 @@ def is_stress_test_snapshot_stale(
 
     profile = _load_user_profile(username)
     current_401k, current_ira = _starting_balances(db, db_user, profile)
-    current_total = round(current_401k + current_ira, 2)
+    current_hsa = _starting_hsa_balance(db, db_user, profile)
+    current_total = round(current_401k + current_ira + current_hsa, 2)
 
     try:
         raw = stress_result.assumptions_json or {}
@@ -1450,7 +1584,7 @@ def run_joint_stress_test(
     # ------------------------------------------------------------------
     profiles: list[dict[str, Any]] = []
     db_users: list[User] = []
-    start_bals: list[tuple[float, float]] = []
+    start_bals: list[tuple[float, float, float]] = []
 
     fund_moments = _build_fund_moments()
 
@@ -1460,9 +1594,10 @@ def run_joint_stress_test(
         if not db_user:
             raise ValueError(f"User '{uname}' not found in database")
         bal_401k, bal_ira = _starting_balances(db, db_user, profile)
+        bal_hsa = _starting_hsa_balance(db, db_user, profile)
         profiles.append(profile)
         db_users.append(db_user)
-        start_bals.append((bal_401k, bal_ira))
+        start_bals.append((bal_401k, bal_ira, bal_hsa))
 
     debt_configs = _load_household_debts_for_users(usernames)
     household_assets = _load_household_assets_for_users(usernames)
@@ -1506,7 +1641,7 @@ def run_joint_stress_test(
     youngest_age = min(current_ages)
     years_to_simulate = max(0, life_expectancy_age - youngest_age)
 
-    combined_start_total = sum(b401 + bira for b401, bira in start_bals)
+    combined_start_total = sum(b401 + bira + bhsa for b401, bira, bhsa in start_bals)
 
     # Blended portfolio metrics (for reporting)
     blended_mean = 0.0
@@ -1520,13 +1655,26 @@ def run_joint_stress_test(
         )
         member_401k = max(start_bals[i][0], 0.0)
         member_ira = max(start_bals[i][1], 0.0)
+        member_hsa = max(start_bals[i][2], 0.0)
         component_weights = [
             member_401k / max(combined_start_total, 1.0),
             member_ira / max(combined_start_total, 1.0),
+            member_hsa / max(combined_start_total, 1.0),
         ]
-        blended_mean += (component_weights[0] * mu_401k) + (component_weights[1] * mu_ira)
+        mu_hsa, sigma_hsa = _hsa_phase_moments(
+            profile,
+            current_ages[i],
+            fund_moments,
+            retirement_ages[i],
+        )
+        blended_mean += (
+            (component_weights[0] * mu_401k)
+            + (component_weights[1] * mu_ira)
+            + (component_weights[2] * mu_hsa)
+        )
         blended_vol_components.append((component_weights[0], sigma_401k))
         blended_vol_components.append((component_weights[1], sigma_ira))
+        blended_vol_components.append((component_weights[2], sigma_hsa))
 
     blended_vol = _blended_portfolio_volatility(blended_vol_components)
     target_volatility = DEFAULT_TARGET_VOLATILITY_PCT / 100.0
@@ -1569,6 +1717,7 @@ def run_joint_stress_test(
 
         bals_401k = [sb[0] for sb in start_bals]
         bals_ira = [sb[1] for sb in start_bals]
+        bals_hsa = [sb[2] for sb in start_bals]
         bals_income = [0.0 for _ in profiles]
         housing_asset_states = initialize_rental_asset_states(household_assets)
 
@@ -1594,7 +1743,8 @@ def run_joint_stress_test(
         failed = False
 
         for _year_idx in range(years_to_simulate):
-            total_household = max(sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles))), 0.0)
+            spendable_household = max(sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles))), 0.0)
+            total_household = spendable_household + max(sum(bals_hsa), 0.0)
             rental_net_cashflow = apply_rental_assets_for_year(housing_asset_states, inflation)
             housing_equity = housing_total_equity(housing_asset_states)
 
@@ -1630,7 +1780,7 @@ def run_joint_stress_test(
                 if retirement_start_balance is None:
                     retirement_start_balance = total_household + housing_equity
                     retirement_portfolio_balances.append(total_household)
-                    annual_withdrawal_rule_based = total_household * withdrawal_pct
+                    annual_withdrawal_rule_based = spendable_household * withdrawal_pct
                 else:
                     annual_withdrawal_rule_based *= (1.0 + inflation)
 
@@ -1660,6 +1810,24 @@ def run_joint_stress_test(
                 else 0.0
             )
 
+            household_hsa_withdrawals = [0.0] * len(profiles)
+            if all_members_retired and household_retirement_spending:
+                _, annual_medical_spending, _ = _retirement_spending_for_year(
+                    household_retirement_spending,
+                    simulation_year,
+                    inflation,
+                )
+                total_hsa_balance = sum(max(balance, 0.0) for balance in bals_hsa)
+                total_hsa_relief = _eligible_hsa_withdrawal(
+                    annual_withdrawal,
+                    annual_medical_spending,
+                    total_hsa_balance,
+                )
+                if total_hsa_relief > 0.0 and total_hsa_balance > 0.0:
+                    for i in range(len(profiles)):
+                        household_hsa_withdrawals[i] = total_hsa_relief * (max(bals_hsa[i], 0.0) / total_hsa_balance)
+                    annual_portfolio_withdrawal = max(annual_portfolio_withdrawal - total_hsa_relief, 0.0)
+
             total_debt_payment = 0.0
             if debt_states:
                 for debt_state in debt_states:
@@ -1668,6 +1836,7 @@ def run_joint_stress_test(
 
             planned_401k_contributions = [0.0] * len(profiles)
             planned_ira_contributions = [0.0] * len(profiles)
+            planned_hsa_contributions = [0.0] * len(profiles)
             planned_rental_contributions = [0.0] * len(profiles)
             for i, profile in enumerate(profiles):
                 if ages[i] < retirement_ages[i]:
@@ -1697,6 +1866,11 @@ def run_joint_stress_test(
                         inflation,
                         age=ages[i],
                     )
+                    planned_hsa_contributions[i] = _annual_hsa_contribution(
+                        profile,
+                        simulation_year,
+                        inflation=inflation,
+                    )
 
             # Rental cashflow is invested in the income fund (separate from 401k/IRA).
             if not all_members_retired and abs(rental_net_cashflow) > 0.0:
@@ -1723,46 +1897,59 @@ def run_joint_stress_test(
                     fund_moments,
                     retirement_ages[i],
                 )
+                mu_hsa, sigma_hsa = _hsa_phase_moments(
+                    profile,
+                    ages[i],
+                    fund_moments,
+                    retirement_ages[i],
+                )
                 sigma_401k *= volatility_uplift
                 sigma_ira *= volatility_uplift
+                sigma_hsa *= volatility_uplift
 
                 # Allocate household withdrawal proportionally to this member's share.
                 member_total = bals_401k[i] + bals_ira[i] + bals_income[i]
-                member_share = member_total / max(total_household, 1.0)
+                member_share = member_total / max(spendable_household, 1.0)
                 withdrawal_i = annual_portfolio_withdrawal * member_share if all_members_retired else 0.0
 
                 # Route contributions to the correct account buckets.
                 # 401k employee + match → bal_401k, IRA → bal_ira, rental income → bal_income.
                 contrib_401k = planned_401k_contributions[i]
                 contrib_ira = planned_ira_contributions[i]
+                contrib_hsa = planned_hsa_contributions[i]
                 contrib_income = planned_rental_contributions[i]
                 w_401k, w_ira, w_income = _route_withdrawal(
                     withdrawal_i, bals_401k[i], bals_ira[i], bals_income[i], withdrawal_strategy
                 )
+                w_hsa = household_hsa_withdrawals[i]
 
                 eff_401k = max(bals_401k[i] + 0.5 * (contrib_401k - w_401k), 0.0)
                 eff_ira = max(bals_ira[i] + 0.5 * (contrib_ira - w_ira), 0.0)
+                eff_hsa = max(bals_hsa[i] + 0.5 * (contrib_hsa - w_hsa), 0.0)
                 eff_income = max(bals_income[i] + 0.5 * (contrib_income - w_income), 0.0)
 
                 r_401k = _draw_annual_return(mu_401k, sigma_401k, normalized_shock)
                 r_ira = _draw_annual_return(mu_ira, sigma_ira, normalized_shock)
+                r_hsa = _draw_annual_return(mu_hsa, sigma_hsa, normalized_shock)
                 r_income = _draw_annual_return(income_mu, income_sigma, normalized_shock)
 
                 bals_401k[i] = max((eff_401k * (1.0 + r_401k)) + 0.5 * (contrib_401k - w_401k), 0.0)
                 bals_ira[i] = max((eff_ira * (1.0 + r_ira)) + 0.5 * (contrib_ira - w_ira), 0.0)
+                bals_hsa[i] = max((eff_hsa * (1.0 + r_hsa)) + 0.5 * (contrib_hsa - w_hsa), 0.0)
                 bals_income[i] = max((eff_income * (1.0 + r_income)) + 0.5 * (contrib_income - w_income), 0.0)
 
-            new_total = sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles)))
+            new_total = sum(bals_401k[i] + bals_ira[i] + bals_hsa[i] + bals_income[i] for i in range(len(profiles)))
             if new_total <= 1.0:
                 failed = True
                 bals_401k = [0.0] * len(profiles)
                 bals_ira = [0.0] * len(profiles)
+                bals_hsa = [0.0] * len(profiles)
                 bals_income = [0.0] * len(profiles)
                 break
 
             ages = [a + 1 for a in ages]
 
-        terminal_portfolio_balance = sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles)))
+        terminal_portfolio_balance = sum(bals_401k[i] + bals_ira[i] + bals_hsa[i] + bals_income[i] for i in range(len(profiles)))
         terminal_balance = terminal_portfolio_balance + housing_total_equity(housing_asset_states)
         terminal_balances.append(terminal_balance)
         terminal_portfolio_balances.append(terminal_portfolio_balance)
@@ -1808,10 +1995,13 @@ def run_joint_stress_test(
             "retirement_age": retirement_ages[i],
             "starting_401k": round(start_bals[i][0], 2),
             "starting_ira": round(start_bals[i][1], 2),
+            "starting_hsa": round(start_bals[i][2], 2),
             "annual_salary": float(profile.get("contribution_details", {}).get("annual_salary", 0)),
             "contribution_pct": float(profile.get("contribution_details", {}).get("annual_contribution_pct", 0)),
             "company_match_pct": float(profile.get("contribution_details", {}).get("company_match_pct", 0)),
             "salary_growth_pct": float(profile.get("contribution_details", {}).get("salary_increase_pct", 0)),
+            "hsa_monthly_contribution": float(profile.get("contribution_details", {}).get("hsa_monthly_contribution", 0)),
+            "hsa_contribution_start_year": profile.get("contribution_details", {}).get("hsa_contribution_start_year"),
         })
 
     assumptions = {
@@ -1835,12 +2025,14 @@ def run_joint_stress_test(
             "inflation_rate": inflation,
             "ira_contributions_included": True,
             "social_security_offsets_withdrawals": True,
+            "hsa_offsets_household_medical_spending": True,
             "income_investment_strategy": "All modeled income cashflows are invested to a Boglehead 3-fund portfolio (FXAIX/FZILX/FXNAX).",
             "retirement_spending_floor_enabled": enforce_retirement_spending_floor,
             "retirement_spending_goal_mode": (
                 "floor" if enforce_retirement_spending_floor else "target"
             ) if base_retirement_spending_annual > 0.0 else "withdrawal_rate_only",
             "retirement_spending_floor_annual_2026": round(base_retirement_spending_annual, 2),
+            "hsa_medical_use_requires_spending_profile": True,
         },
         "social_security": {
             "enabled": True,

@@ -314,6 +314,31 @@ class TestAuthHardening:
         assert not auth_module._LOCKED_UNTIL_BY_IP
 
 
+class TestStressTestRoutes:
+    def test_recalculate_stress_test_returns_result(self, client):
+        response = client.post(
+            "/api/stress-test/Steven/recalculate",
+            json={"simulation_count": 5000, "random_seed": 42},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["result"] is not None
+        assert payload["result"]["username"] == "Steven"
+        assert payload["result"]["simulation_count"] == 5000
+
+
+class TestComparisonRoutes:
+    def test_comparison_payload_includes_sequence_risk_returns(self, client):
+        response = client.get("/api/comparison/Steven")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert "sequence_risk_returns" in payload
+        assert isinstance(payload["sequence_risk_returns"], list)
+        assert len(payload["sequence_risk_returns"]) >= 5
+        assert all(isinstance(value, (int, float)) for value in payload["sequence_risk_returns"])
+
+
 class TestSecurityHeaders:
     def test_csp_present(self, client):
         response = client.get("/health")

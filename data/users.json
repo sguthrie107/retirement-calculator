@@ -3,7 +3,7 @@
     {
       "name": "Steven",
       "age": 29,
-      "retirement_age": 67,
+      "retirement_age": 63,
       "social_security_claim_age": 70,
       "withdrawal_pct": 0.045,
       "withdrawal_order": "401k_first",
@@ -37,6 +37,9 @@
         "annual_contribution_pct_step_pct": 0.01,
         "annual_contribution_pct_step_cap_pct": 0.15,
         "annual_ira_contribution": 7000,
+        "hsa_monthly_contribution": 200,
+        "hsa_contribution_start_year": 2028,
+        "hsa_contribution_growth_pct": 0.0,
         "company_match_pct": 0.00,
         "salary_increase_pct": 0.025,
         "contribution_frequency": "weekly",
@@ -48,6 +51,7 @@
       },
       "fund_provider": "Fidelity",
       "current_ira_balance": 40000,
+      "current_hsa_balance": 10000,
       "ira_phases": {
         "phase_1": {
           "name": "Growth (Up to 50)",
@@ -76,6 +80,17 @@
             "corporate_bonds": { "pct": 0.15, "ticker": "FUAMX", "label": "Corp Bonds" },
             "us_bonds": { "pct": 0.15, "ticker": "FNAX", "label": "Agg Bonds" },
             "intm_bonds": { "pct": 0.10, "ticker": "FIPDX", "label": "Intm Bonds" }
+          }
+        }
+      },
+      "hsa_phases": {
+        "phase_1": {
+          "name": "Medical Reserve Growth",
+          "end_age": null,
+          "allocation": {
+            "us_stock": { "pct": 0.60, "ticker": "VOO", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.20, "ticker": "VXUS", "label": "Total Intl" },
+            "bonds": { "pct": 0.20, "ticker": "BND", "label": "Total Bond" }
           }
         }
       },

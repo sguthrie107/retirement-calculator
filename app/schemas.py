@@ -43,6 +43,7 @@ class ComparisonResponse(BaseModel):
     retirement_year: Optional[int] = None
     life_expectancy_age: Optional[int] = None
     withdrawal_pct: Optional[float] = None
+    sequence_risk_returns: Optional[list[float]] = None
 
 
 class StressTestRecalculateRequest(BaseModel):

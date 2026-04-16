@@ -32,9 +32,18 @@ const userColors = {
     'User4': { border: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.1)' },
 };
 
-const sequenceRiskReturns = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025];
+const defaultSequenceRiskReturns = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025];
 
-function getSequenceRiskReturn(startYear, year) {
+function getSequenceRiskReturnsForData(data) {
+    const configured = data && Array.isArray(data.sequence_risk_returns)
+        ? data.sequence_risk_returns
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value))
+        : [];
+    return configured.length > 0 ? configured : defaultSequenceRiskReturns;
+}
+
+function getSequenceRiskReturn(startYear, year, sequenceRiskReturns = defaultSequenceRiskReturns) {
     const offset = Math.max(0, year - startYear);
     if (offset < sequenceRiskReturns.length) {
         return sequenceRiskReturns[offset];
@@ -42,7 +51,7 @@ function getSequenceRiskReturn(startYear, year) {
     return 0.03;
 }
 
-function buildPostRetirementSeries(baseByYear, retirementYear, lifeExpectancyYear, deductionRate) {
+function buildPostRetirementSeries(baseByYear, retirementYear, lifeExpectancyYear, deductionRate, sequenceRiskReturns = defaultSequenceRiskReturns) {
     const output = {};
     if (!Number.isFinite(retirementYear) || !Number.isFinite(lifeExpectancyYear) || lifeExpectancyYear < retirementYear) {
         return output;
@@ -50,13 +59,12 @@ function buildPostRetirementSeries(baseByYear, retirementYear, lifeExpectancyYea
 
     const startBalance = Number(baseByYear[retirementYear] ?? 0);
     let runningBalance = Math.max(startBalance, 0);
-    const fixedAnnualWithdrawal = Math.max(startBalance * deductionRate, 0);
     output[retirementYear] = roundToCents(runningBalance);
 
     for (let year = retirementYear + 1; year <= lifeExpectancyYear; year += 1) {
-        const riskReturn = getSequenceRiskReturn(retirementYear, year);
+        const riskReturn = getSequenceRiskReturn(retirementYear, year, sequenceRiskReturns);
         runningBalance = Math.max(runningBalance * (1 + riskReturn), 0);
-        const withdrawal = Math.min(fixedAnnualWithdrawal, runningBalance);
+        const withdrawal = runningBalance * deductionRate;
         runningBalance = Math.max(runningBalance - withdrawal, 0);
         output[year] = roundToCents(runningBalance);
     }
@@ -400,6 +408,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
     const ctx = document.getElementById('retirementChart');
     const retirementYear = Number.isFinite(Number(data.retirement_year)) ? Number(data.retirement_year) : null;
     const isMobileViewport = window.innerWidth <= 768;
+    const sequenceRiskReturns = getSequenceRiskReturnsForData(data);
     
     // Destroy existing chart if it exists
     if (chartInstance) {
@@ -616,7 +625,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
         baselineWithdrawalByYear[startYear] = 0;
 
         for (let year = startYear + 1; year <= lifeExpectancyYear; year += 1) {
-            const riskReturn = getSequenceRiskReturn(startYear, year);
+            const riskReturn = getSequenceRiskReturn(startYear, year, sequenceRiskReturns);
             runningBalance = Math.max(runningBalance * (1 + riskReturn), 0);
             const withdrawal = Math.min(fixedAnnualWithdrawal, runningBalance);
             runningBalance = Math.max(runningBalance - withdrawal, 0);
@@ -677,7 +686,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
                     scenarioWithdrawalByKey[cfg.key][retirementYearValue] = 0;
 
                     for (let year = retirementYearValue + 1; year <= lifeExpectancyYear; year += 1) {
-                        const scenarioRiskReturn = getSequenceRiskReturn(retirementYearValue, year);
+                        const scenarioRiskReturn = getSequenceRiskReturn(retirementYearValue, year, sequenceRiskReturns);
                         scenarioRunningBalance = Math.max(scenarioRunningBalance * (1 + scenarioRiskReturn), 0);
                         const scenarioWithdrawal = Math.min(scenarioFixedWithdrawal, scenarioRunningBalance);
                         scenarioRunningBalance = Math.max(scenarioRunningBalance - scenarioWithdrawal, 0);
@@ -1014,6 +1023,7 @@ function renderAllUsersChart(usersData) {
 
         const retirementYear = Number(user.retirement_year || 0);
         const lifeExpectancyAge = Number(user.life_expectancy_age || 0);
+        const sequenceRiskReturns = getSequenceRiskReturnsForData(user);
         let lifeExpectancyYear = null;
         if (Number.isFinite(retirementYear) && retirementYear > 0 && Number.isFinite(lifeExpectancyAge) && lifeExpectancyAge > 0) {
             const retirementAge = Number(user.retirement_age || 0);
@@ -1024,7 +1034,13 @@ function renderAllUsersChart(usersData) {
         }
 
         if (deductionEnabled && Number.isFinite(lifeExpectancyYear) && Number.isFinite(retirementYear) && retirementYear > 0) {
-            const postSeries = buildPostRetirementSeries(projectedByYear, retirementYear, lifeExpectancyYear, deductionRate);
+            const postSeries = buildPostRetirementSeries(
+                projectedByYear,
+                retirementYear,
+                lifeExpectancyYear,
+                deductionRate,
+                sequenceRiskReturns,
+            );
             Object.keys(postSeries).forEach((yearKey) => {
                 const year = Number(yearKey);
                 projectedByYear[year] = postSeries[year];

@@ -9,9 +9,12 @@ import pytest
 import pandas as pd
 
 from app.services.monte_carlo import (
+    _allocation_moments,
     _annual_contribution,
+    _annual_hsa_contribution,
     _annual_ira_contribution,
     _draw_annual_return,
+    _eligible_hsa_withdrawal,
     _is_bond_like_ticker,
     _normalize_allocation_weights,
     _retirement_spending_for_year,
@@ -24,6 +27,10 @@ from app.services.monte_carlo import (
     BOND_LIKE_TICKERS,
     WITHDRAWAL_STRATEGY_PROPORTIONAL,
     WITHDRAWAL_STRATEGY_401K_FIRST,
+)
+from app.services.comparison import (
+    _allocation_sequence_risk_returns,
+    _sequence_risk_returns_for_projected_portfolio,
 )
 from lib.calculator_utils import compute_contribution_pct_for_year, project_root, load_user_profile
 from lib.display_utils import merge_projections
@@ -255,6 +262,38 @@ class TestAnnualIraContribution:
         assert r == pytest.approx(8_000)
 
 
+class TestAnnualHsaContribution:
+    def _profile(self, monthly=200, start_year=2028, growth_pct=0.0):
+        return {
+            "contribution_details": {
+                "hsa_monthly_contribution": monthly,
+                "hsa_contribution_start_year": start_year,
+                "hsa_contribution_growth_pct": growth_pct,
+            }
+        }
+
+    def test_zero_until_start_year(self):
+        assert _annual_hsa_contribution(self._profile(), 2027, inflation=0.03) == pytest.approx(0.0)
+
+    def test_monthly_contribution_becomes_annual_amount(self):
+        assert _annual_hsa_contribution(self._profile(), 2028, inflation=0.03) == pytest.approx(2_400.0)
+
+    def test_growth_pct_applies_from_hsa_start_year(self):
+        result = _annual_hsa_contribution(self._profile(growth_pct=0.02), 2030, inflation=0.03)
+        assert result == pytest.approx(2_400.0 * (1.02 ** 2))
+
+
+class TestEligibleHsaWithdrawal:
+    def test_capped_by_medical_spending(self):
+        assert _eligible_hsa_withdrawal(10_000, 3_000, 50_000) == pytest.approx(3_000)
+
+    def test_capped_by_available_balance(self):
+        assert _eligible_hsa_withdrawal(10_000, 8_000, 1_500) == pytest.approx(1_500)
+
+    def test_zero_when_no_medical_need(self):
+        assert _eligible_hsa_withdrawal(10_000, 0, 5_000) == pytest.approx(0.0)
+
+
 class TestRetirementSpendingForYear:
     def test_applies_expense_adjustment_once_effective_year_is_reached(self):
         spending_config = {
@@ -353,6 +392,104 @@ class TestNormalizeAllocationWeights:
     def test_zero_weight_allocation_returns_empty(self):
         alloc = {"a": {"pct": 0.0, "ticker": "X"}}
         assert _normalize_allocation_weights(alloc) == {}
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo allocation sensitivity
+# ---------------------------------------------------------------------------
+
+class TestAllocationMoments:
+    def test_bonds_reduce_portfolio_volatility(self):
+        fund_moments = {
+            "FXAIX": AssetMoments(mean_return=0.10, volatility=0.20),
+            "FXNAX": AssetMoments(mean_return=0.04, volatility=0.05),
+        }
+        all_stock = {"us_stock": {"pct": 1.0, "ticker": "FXAIX"}}
+        balanced = {
+            "us_stock": {"pct": 0.6, "ticker": "FXAIX"},
+            "bonds": {"pct": 0.4, "ticker": "FXNAX"},
+        }
+
+        mu_stock, sigma_stock = _allocation_moments(all_stock, fund_moments)
+        mu_balanced, sigma_balanced = _allocation_moments(balanced, fund_moments)
+
+        assert sigma_balanced < sigma_stock
+        assert mu_balanced < mu_stock
+
+
+# ---------------------------------------------------------------------------
+# Chart sequence-risk sensitivity
+# ---------------------------------------------------------------------------
+
+class TestSequenceRiskReturns:
+    def test_bond_allocation_softens_first_year_crash(self):
+        fund_moments = {
+            "FXAIX": AssetMoments(mean_return=0.10, volatility=0.20),
+            "FXNAX": AssetMoments(mean_return=0.04, volatility=0.05),
+        }
+        all_stock = {"us_stock": {"pct": 1.0, "ticker": "FXAIX"}}
+        balanced = {
+            "us_stock": {"pct": 0.6, "ticker": "FXAIX"},
+            "bonds": {"pct": 0.4, "ticker": "FXNAX"},
+        }
+
+        all_stock_path = _allocation_sequence_risk_returns(all_stock, fund_moments)
+        balanced_path = _allocation_sequence_risk_returns(balanced, fund_moments)
+
+        assert balanced_path[0] > all_stock_path[0]
+        assert max(balanced_path) < 0.10
+
+    def test_projected_portfolio_uses_account_structure_at_retirement(self):
+        profile = {
+            "age": 60,
+            "retirement_age": 65,
+            "401k_phases": {
+                "phase_3": {
+                    "end_age": None,
+                    "allocation": {
+                        "us_stock": {"pct": 1.0, "ticker": "FXAIX"},
+                    },
+                }
+            },
+            "ira_phases": {
+                "phase_3": {
+                    "end_age": None,
+                    "allocation": {
+                        "bonds": {"pct": 1.0, "ticker": "FXNAX"},
+                    },
+                }
+            },
+        }
+        projected = [
+            {
+                "year": 2031,
+                "balance": 100_000.0,
+                "account_balances": {"401k": 60_000.0, "roth_ira": 40_000.0},
+            }
+        ]
+        fund_moments = {
+            "FXAIX": AssetMoments(mean_return=0.10, volatility=0.20),
+            "FXNAX": AssetMoments(mean_return=0.04, volatility=0.05),
+        }
+
+        path = _sequence_risk_returns_for_projected_portfolio(
+            profile,
+            projected,
+            current_year=2026,
+            fund_moments=fund_moments,
+        )
+
+        stock_only = _allocation_sequence_risk_returns(
+            {"us_stock": {"pct": 1.0, "ticker": "FXAIX"}},
+            fund_moments,
+        )
+        bond_only = _allocation_sequence_risk_returns(
+            {"bonds": {"pct": 1.0, "ticker": "FXNAX"}},
+            fund_moments,
+        )
+
+        expected_first_year = round((0.6 * stock_only[0]) + (0.4 * bond_only[0]), 4)
+        assert path[0] == pytest.approx(expected_first_year)
 
 
 # ---------------------------------------------------------------------------
