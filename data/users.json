@@ -7,6 +7,12 @@
       "social_security_claim_age": 70,
       "withdrawal_pct": 0.045,
       "withdrawal_order": "401k_first",
+      "withdrawal_guardrails": {
+        "enabled": true,
+        "baseline_pct": 0.04,
+        "min_pct": 0.036,
+        "max_pct": 0.044
+      },
       "chart_seed": {
         "projected_backcast": {
           "anchor_year": 2024,

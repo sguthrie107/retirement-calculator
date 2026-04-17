@@ -38,6 +38,13 @@ MIN_SIMULATION_COUNT = 5000
 DEFAULT_INFLATION_PCT = 3.0
 DEFAULT_LIFE_EXPECTANCY_AGE = 88
 DEFAULT_WITHDRAWAL_PCT = 0.05
+
+# Dynamic withdrawal guardrails
+WITHDRAWAL_MODE_FIXED = "fixed"
+WITHDRAWAL_MODE_DYNAMIC = "dynamic_guardrails"
+DEFAULT_GUARDRAIL_BASELINE_PCT = 0.04
+DEFAULT_GUARDRAIL_MIN_PCT = 0.036
+DEFAULT_GUARDRAIL_MAX_PCT = 0.044
 DEFAULT_TARGET_VOLATILITY_PCT = 13.5
 DEFAULT_SUCCESS_THRESHOLD_PCT = 10.0
 POST_DEBT_CONTRIBUTION_STEP_PCT = 0.01
@@ -587,6 +594,112 @@ def _route_withdrawal(
     return 0.0, 0.0, 0.0
 
 
+def _load_guardrail_config(user_profile: dict[str, Any]) -> dict[str, Any]:
+    """Return normalised guardrail config with safe defaults.
+
+    Users opt in by adding ``withdrawal_guardrails`` to their profile.
+    When absent or ``enabled`` is false, returns a fixed-mode config that
+    leaves existing behaviour completely unchanged.
+    """
+    raw = user_profile.get("withdrawal_guardrails") or {}
+    enabled = bool(raw.get("enabled", False))
+    return {
+        "enabled": enabled,
+        "mode": WITHDRAWAL_MODE_DYNAMIC if enabled else WITHDRAWAL_MODE_FIXED,
+        "baseline_pct": float(raw.get("baseline_pct", DEFAULT_GUARDRAIL_BASELINE_PCT)),
+        "min_pct": float(raw.get("min_pct", DEFAULT_GUARDRAIL_MIN_PCT)),
+        "max_pct": float(raw.get("max_pct", DEFAULT_GUARDRAIL_MAX_PCT)),
+    }
+
+
+def _guardrail_adjusted_rate(
+    current_rate: float,
+    prior_year_portfolio_return: float | None,
+    guardrail_config: dict[str, Any],
+) -> float:
+    """Apply prior-year-return guardrails to the withdrawal rate.
+
+    Rules (applied only when mode is ``dynamic_guardrails``):
+    - Negative prior-year return  → clamp toward ``min_pct`` by scaling down.
+    - Return between -threshold and threshold → hold at baseline.
+    - Strong positive return      → allow up to ``max_pct``.
+
+    The adjustment is proportional rather than a hard step so the rate never
+    jumps discontinuously mid-simulation.
+    """
+    if not guardrail_config.get("enabled"):
+        return current_rate
+
+    min_pct = guardrail_config["min_pct"]
+    max_pct = guardrail_config["max_pct"]
+    baseline = guardrail_config["baseline_pct"]
+
+    if prior_year_portfolio_return is None:
+        return baseline
+
+    r = prior_year_portfolio_return
+
+    if r < -0.10:
+        # Severe loss year — drop to floor.
+        return min_pct
+    if r < 0.0:
+        # Mild negative year — interpolate between min and baseline.
+        t = r / -0.10  # 0 at r=0, 1 at r=-10%
+        return baseline - t * (baseline - min_pct)
+    if r > 0.20:
+        # Strong gain year — allow ceiling.
+        return max_pct
+    if r > 0.0:
+        # Positive but moderate — interpolate between baseline and max.
+        t = r / 0.20  # 0 at r=0, 1 at r=+20%
+        return baseline + t * (max_pct - baseline)
+
+    return baseline
+
+
+def _apply_guardrail_to_withdrawal(
+    inflation_grown_withdrawal: float,
+    spendable_balance: float,
+    guardrail_config: dict[str, Any],
+    prior_year_portfolio_return: float | None,
+) -> tuple[float, float]:
+    """Clamp an inflation-grown withdrawal to the guardrail band.
+
+    This uses the Guyton-Klinger style guardrail: grow spending with inflation
+    each year as normal, but if the implied withdrawal rate drifts outside the
+    configured floor/ceiling band, clamp the dollar amount to bring the rate back
+    in range.  The portfolio thus never permanently depletes via the guardrail
+    mechanism alone — it only adjusts when the rate actually breaches a bound.
+
+    Returns: (clamped_withdrawal, effective_rate)
+    """
+    if not guardrail_config.get("enabled") or spendable_balance <= 0.0:
+        return inflation_grown_withdrawal, guardrail_config.get("baseline_pct", DEFAULT_GUARDRAIL_BASELINE_PCT)
+
+    min_pct = guardrail_config["min_pct"]
+    max_pct = guardrail_config["max_pct"]
+    baseline = guardrail_config["baseline_pct"]
+
+    # Implied rate of the inflation-grown withdrawal against the current portfolio.
+    implied_rate = inflation_grown_withdrawal / spendable_balance
+
+    # Additionally adjust the bounds based on prior-year return (tighten floor in bad years).
+    target_rate = _guardrail_adjusted_rate(baseline, prior_year_portfolio_return, guardrail_config)
+
+    if implied_rate < min_pct:
+        # Withdrawal has shrunk too much (portfolio grew strongly) — restore to target floor.
+        clamped = spendable_balance * target_rate
+    elif implied_rate > max_pct:
+        # Withdrawal has grown too large relative to portfolio — cut to rate ceiling.
+        clamped = spendable_balance * max_pct
+    else:
+        # Within band — use the inflation-grown amount unchanged.
+        clamped = inflation_grown_withdrawal
+
+    effective_rate = clamped / spendable_balance if spendable_balance > 0.0 else baseline
+    return clamped, effective_rate
+
+
 def _rating_for_probability(probability_pct: float) -> dict[str, Any]:
     for band in RATING_BANDS:
         if probability_pct >= band["min_probability"]:
@@ -960,6 +1073,9 @@ def run_stress_test(
     inflation = DEFAULT_INFLATION_PCT / 100.0
     success_threshold = DEFAULT_SUCCESS_THRESHOLD_PCT / 100.0
     withdrawal_pct = float(user_profile.get("withdrawal_pct") or DEFAULT_WITHDRAWAL_PCT)
+    guardrail_config = _load_guardrail_config(user_profile)
+    if guardrail_config["enabled"]:
+        withdrawal_pct = guardrail_config["baseline_pct"]
     withdrawal_strategy = str(user_profile.get("withdrawal_order") or WITHDRAWAL_STRATEGY_PROPORTIONAL)
     social_security_claim_age = int(user_profile.get("social_security_claim_age", DEFAULT_SOCIAL_SECURITY_CLAIM_AGE))
     social_security_base_annual_income = _estimate_social_security_annual_benefit(
@@ -1067,6 +1183,10 @@ def run_stress_test(
     non_depleted_terminal_portfolio_balances: list[float] = []
     non_depleted_terminal_net_worth_balances: list[float] = []
     success_count = 0
+    # Tracks the mean withdrawal rate actually applied across all retirement years
+    # for the guardrail mode report.
+    _guardrail_applied_rates_sum: float = 0.0
+    _guardrail_applied_rates_count: int = 0
 
     # --- Precompute deterministic per-age quantities once ---
     _precomputed_moments: dict[int, tuple] = {}
@@ -1123,6 +1243,10 @@ def run_stress_test(
         annual_withdrawal = 0.0
         retirement_start_balance = None
         failed = False
+        # Guardrail state tracking (used only when dynamic mode is enabled).
+        _prior_spendable: float | None = None
+        _prior_year_portfolio_return: float | None = None
+        _effective_withdrawal_pct = withdrawal_pct
 
         for year_idx in range(years_to_simulate):
             spendable_balance = max(bal_401k + bal_ira + bal_income, 0.0)
@@ -1170,9 +1294,24 @@ def run_stress_test(
                 if retirement_start_balance is None:
                     retirement_start_balance = total_balance + housing_equity
                     retirement_portfolio_balances.append(total_balance)
-                    annual_withdrawal = spendable_balance * withdrawal_pct
+                    # First retirement year: set initial withdrawal amount.
+                    _effective_rate = _guardrail_adjusted_rate(
+                        withdrawal_pct, _prior_year_portfolio_return, guardrail_config
+                    ) if guardrail_config["enabled"] else withdrawal_pct
+                    annual_withdrawal = spendable_balance * _effective_rate
+                    _effective_withdrawal_pct = _effective_rate
                 else:
+                    # Grow last year's nominal withdrawal by inflation (same for both modes).
                     annual_withdrawal *= (1.0 + inflation)
+                    if guardrail_config["enabled"]:
+                        # Dynamic: clamp inflation-grown withdrawal to guardrail band.
+                        annual_withdrawal, _effective_withdrawal_pct = _apply_guardrail_to_withdrawal(
+                            annual_withdrawal, spendable_balance, guardrail_config, _prior_year_portfolio_return
+                        )
+                    else:
+                        _effective_withdrawal_pct = withdrawal_pct
+                _guardrail_applied_rates_sum += _effective_withdrawal_pct
+                _guardrail_applied_rates_count += 1
 
                 social_security_income = _precomputed_ss.get(age, 0.0)
 
@@ -1241,6 +1380,12 @@ def run_stress_test(
                 bal_income = 0.0
                 break
 
+            # Track prior-year spendable balance for guardrail return calculation.
+            new_spendable = max(bal_401k + bal_ira + bal_income, 0.0)
+            if _prior_spendable is not None and _prior_spendable > 0.0:
+                _prior_year_portfolio_return = (new_spendable - _prior_spendable) / _prior_spendable
+            _prior_spendable = new_spendable
+
             age += 1
 
         terminal_portfolio_balance = bal_401k + bal_ira + bal_hsa + bal_income
@@ -1290,9 +1435,22 @@ def run_stress_test(
         "cashflow": {
             "contribution_schedule": "Pre-retirement annual salary-based 401k contribution with employer match plus inflation-indexed IRA annual contributions",
             "hsa_contribution_schedule": "Optional monthly HSA contributions begin in the configured year and HSA assets can offset retirement medical spending before portfolio withdrawals.",
-            "withdrawal_phase": "Retirement withdrawals begin at retirement age and grow with inflation",
+            "withdrawal_phase": "Retirement withdrawals begin at retirement age; rate is recalculated each year when dynamic guardrails are enabled",
             "withdrawal_rate": withdrawal_pct,
             "withdrawal_strategy": withdrawal_strategy,
+            "dynamic_guardrails": {
+                "enabled": guardrail_config["enabled"],
+                "mode": guardrail_config["mode"],
+                "baseline_pct": round(guardrail_config["baseline_pct"] * 100.0, 2),
+                "min_pct": round(guardrail_config["min_pct"] * 100.0, 2),
+                "max_pct": round(guardrail_config["max_pct"] * 100.0, 2),
+                "rule": "prior_year_return",
+                "mean_applied_rate_pct": (
+                    round(_guardrail_applied_rates_sum / _guardrail_applied_rates_count * 100.0, 3)
+                    if _guardrail_applied_rates_count > 0
+                    else None
+                ),
+            },
             "inflation_rate": inflation,
             "maximize_retirement_contributions": bool(
                 contribution_details.get("maximize_retirement_contributions", False)
@@ -1625,6 +1783,9 @@ def run_joint_stress_test(
     inflation = DEFAULT_INFLATION_PCT / 100.0
     success_threshold = DEFAULT_SUCCESS_THRESHOLD_PCT / 100.0
     withdrawal_pct = float(profiles[0].get("withdrawal_pct") or DEFAULT_WITHDRAWAL_PCT)
+    guardrail_config = _load_guardrail_config(profiles[0])
+    if guardrail_config["enabled"]:
+        withdrawal_pct = guardrail_config["baseline_pct"]
     withdrawal_strategy = str(profiles[0].get("withdrawal_order") or WITHDRAWAL_STRATEGY_PROPORTIONAL)
     social_security_base_annual_incomes = [
         _estimate_social_security_annual_benefit(
@@ -1702,6 +1863,8 @@ def run_joint_stress_test(
     non_depleted_terminal_portfolio_balances: list[float] = []
     non_depleted_terminal_net_worth_balances: list[float] = []
     success_count = 0
+    _jt_guardrail_applied_rates_sum: float = 0.0
+    _jt_guardrail_applied_rates_count: int = 0
 
     # --- Precompute deterministic per-member per-age quantities once ---
     # Each member may exceed life_expectancy_age when older members are
@@ -1789,6 +1952,10 @@ def run_joint_stress_test(
         annual_withdrawal_rule_based = 0.0
         retirement_start_balance: float | None = None
         failed = False
+        # Guardrail state tracking for joint simulation.
+        _jt_prior_spendable: float | None = None
+        _jt_prior_year_portfolio_return: float | None = None
+        _jt_effective_withdrawal_pct = withdrawal_pct
 
         for _year_idx in range(years_to_simulate):
             spendable_household = max(sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles))), 0.0)
@@ -1828,9 +1995,22 @@ def run_joint_stress_test(
                 if retirement_start_balance is None:
                     retirement_start_balance = total_household + housing_equity
                     retirement_portfolio_balances.append(total_household)
-                    annual_withdrawal_rule_based = spendable_household * withdrawal_pct
+                    _jt_effective_withdrawal_pct = _guardrail_adjusted_rate(
+                        withdrawal_pct, _jt_prior_year_portfolio_return, guardrail_config
+                    ) if guardrail_config["enabled"] else withdrawal_pct
+                    annual_withdrawal_rule_based = spendable_household * _jt_effective_withdrawal_pct
                 else:
+                    # Grow last year's nominal withdrawal by inflation (same for both modes).
                     annual_withdrawal_rule_based *= (1.0 + inflation)
+                    if guardrail_config["enabled"]:
+                        # Dynamic: clamp inflation-grown withdrawal to guardrail band.
+                        annual_withdrawal_rule_based, _jt_effective_withdrawal_pct = _apply_guardrail_to_withdrawal(
+                            annual_withdrawal_rule_based, spendable_household, guardrail_config, _jt_prior_year_portfolio_return
+                        )
+                    else:
+                        _jt_effective_withdrawal_pct = withdrawal_pct
+                _jt_guardrail_applied_rates_sum += _jt_effective_withdrawal_pct
+                _jt_guardrail_applied_rates_count += 1
 
                 annual_withdrawal = annual_withdrawal_rule_based
                 if base_retirement_spending_annual > 0.0:
@@ -1970,6 +2150,12 @@ def run_joint_stress_test(
                 bals_income = [0.0] * len(profiles)
                 break
 
+            # Track prior-year household spendable balance for guardrail return calculation.
+            new_spendable_hh = max(sum(bals_401k[i] + bals_ira[i] + bals_income[i] for i in range(len(profiles))), 0.0)
+            if _jt_prior_spendable is not None and _jt_prior_spendable > 0.0:
+                _jt_prior_year_portfolio_return = (new_spendable_hh - _jt_prior_spendable) / _jt_prior_spendable
+            _jt_prior_spendable = new_spendable_hh
+
             ages = [a + 1 for a in ages]
 
         terminal_portfolio_balance = sum(bals_401k[i] + bals_ira[i] + bals_hsa[i] + bals_income[i] for i in range(len(profiles)))
@@ -2039,9 +2225,22 @@ def run_joint_stress_test(
             },
         },
         "cashflow": {
-            "withdrawal_phase": "Household withdrawals begin when all household members are retired",
+            "withdrawal_phase": "Household withdrawals begin when all household members are retired; rate is recalculated each year when dynamic guardrails are enabled",
             "withdrawal_rate": withdrawal_pct,
             "withdrawal_strategy": withdrawal_strategy,
+            "dynamic_guardrails": {
+                "enabled": guardrail_config["enabled"],
+                "mode": guardrail_config["mode"],
+                "baseline_pct": round(guardrail_config["baseline_pct"] * 100.0, 2),
+                "min_pct": round(guardrail_config["min_pct"] * 100.0, 2),
+                "max_pct": round(guardrail_config["max_pct"] * 100.0, 2),
+                "rule": "prior_year_return",
+                "mean_applied_rate_pct": (
+                    round(_jt_guardrail_applied_rates_sum / _jt_guardrail_applied_rates_count * 100.0, 3)
+                    if _jt_guardrail_applied_rates_count > 0
+                    else None
+                ),
+            },
             "inflation_rate": inflation,
             "ira_contributions_included": True,
             "social_security_offsets_withdrawals": True,

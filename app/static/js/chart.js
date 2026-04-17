@@ -1923,6 +1923,21 @@ function renderStressTestResult(result) {
                         <div class="assump-row"><span>Withdrawal Schedule</span><span class="assump-note">${cashflow.withdrawal_phase || 'Begins at retirement, grows with inflation'}</span></div>
                     </div>
 
+                    ${(() => {
+                        const g = cashflow?.dynamic_guardrails;
+                        if (!g) return '';
+                        const enabledLabel = g.enabled ? 'Active' : 'Inactive';
+                        const meanRate = (g.mean_applied_rate_pct != null) ? `${g.mean_applied_rate_pct.toFixed(2)}%` : '—';
+                        return `<div class="assumptions-group">
+                        <div class="assumptions-group-title">Dynamic Withdrawal Guardrails</div>
+                        <div class="assump-row"><span>Status</span><span>${enabledLabel}</span></div>
+                        <div class="assump-row"><span>Baseline Rate</span><span>${(g.baseline_pct || 0).toFixed(1)}%</span></div>
+                        <div class="assump-row"><span>Floor / Ceiling</span><span>${(g.min_pct || 0).toFixed(1)}% – ${(g.max_pct || 0).toFixed(1)}%</span></div>
+                        <div class="assump-row"><span>Adjustment Rule</span><span class="assump-note">${g.rule === 'prior_year_return' ? 'Adjusted annually based on prior-year portfolio return' : g.rule || '—'}</span></div>
+                        ${g.enabled ? `<div class="assump-row"><span>Mean Applied Rate</span><span>${meanRate}</span></div>` : ''}
+                    </div>`;
+                    })()}
+
                     <div class="assumptions-group">
                         <div class="assumptions-group-title">Debt Paydown</div>
                         <div class="assump-row"><span>Enabled</span><span>${debtPaydown.enabled ? 'Yes' : 'No'}</span></div>

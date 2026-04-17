@@ -22,11 +22,19 @@ from app.services.monte_carlo import (
     _estimate_social_security_annual_benefit,
     _route_withdrawal,
     _student_t,
+    _load_guardrail_config,
+    _guardrail_adjusted_rate,
+    _apply_guardrail_to_withdrawal,
     AssetMoments,
     RATING_BANDS,
     BOND_LIKE_TICKERS,
     WITHDRAWAL_STRATEGY_PROPORTIONAL,
     WITHDRAWAL_STRATEGY_401K_FIRST,
+    DEFAULT_GUARDRAIL_BASELINE_PCT,
+    DEFAULT_GUARDRAIL_MIN_PCT,
+    DEFAULT_GUARDRAIL_MAX_PCT,
+    WITHDRAWAL_MODE_FIXED,
+    WITHDRAWAL_MODE_DYNAMIC,
 )
 from app.services.comparison import (
     _allocation_sequence_risk_returns,
@@ -644,3 +652,170 @@ class TestCalculatorUtils:
 
     def test_project_root_contains_users_json(self):
         assert (project_root() / "data" / "users.json").exists()
+
+
+class TestLoadGuardrailConfig:
+    def _cfg(self, profile):
+        return _load_guardrail_config(profile)
+
+    def test_returns_fixed_mode_when_not_configured(self):
+        cfg = self._cfg({})
+        assert cfg["enabled"] is False
+        assert cfg["mode"] == WITHDRAWAL_MODE_FIXED
+
+    def test_returns_fixed_mode_when_disabled_explicitly(self):
+        cfg = self._cfg({"withdrawal_guardrails": {"enabled": False}})
+        assert cfg["enabled"] is False
+        assert cfg["mode"] == WITHDRAWAL_MODE_FIXED
+
+    def test_returns_dynamic_mode_when_enabled(self):
+        cfg = self._cfg({"withdrawal_guardrails": {"enabled": True}})
+        assert cfg["enabled"] is True
+        assert cfg["mode"] == WITHDRAWAL_MODE_DYNAMIC
+
+    def test_uses_custom_bounds_when_provided(self):
+        cfg = self._cfg({"withdrawal_guardrails": {
+            "enabled": True,
+            "baseline_pct": 0.042,
+            "min_pct": 0.035,
+            "max_pct": 0.050,
+        }})
+        assert cfg["baseline_pct"] == pytest.approx(0.042)
+        assert cfg["min_pct"] == pytest.approx(0.035)
+        assert cfg["max_pct"] == pytest.approx(0.050)
+
+    def test_falls_back_to_defaults_when_bounds_absent(self):
+        cfg = self._cfg({"withdrawal_guardrails": {"enabled": True}})
+        assert cfg["baseline_pct"] == pytest.approx(DEFAULT_GUARDRAIL_BASELINE_PCT)
+        assert cfg["min_pct"] == pytest.approx(DEFAULT_GUARDRAIL_MIN_PCT)
+        assert cfg["max_pct"] == pytest.approx(DEFAULT_GUARDRAIL_MAX_PCT)
+
+
+class TestGuardrailAdjustedRate:
+    ACTIVE = {
+        "enabled": True,
+        "mode": WITHDRAWAL_MODE_DYNAMIC,
+        "baseline_pct": 0.04,
+        "min_pct": 0.036,
+        "max_pct": 0.044,
+    }
+    INACTIVE = {
+        "enabled": False,
+        "mode": WITHDRAWAL_MODE_FIXED,
+        "baseline_pct": 0.04,
+        "min_pct": 0.036,
+        "max_pct": 0.044,
+    }
+
+    def test_passthrough_when_disabled(self):
+        rate = _guardrail_adjusted_rate(0.045, -0.15, self.INACTIVE)
+        assert rate == pytest.approx(0.045)
+
+    def test_returns_baseline_when_no_prior_return(self):
+        rate = _guardrail_adjusted_rate(0.04, None, self.ACTIVE)
+        assert rate == pytest.approx(0.04)
+
+    def test_floor_on_severe_loss_year(self):
+        # Return <= -10% → floor
+        rate_exact = _guardrail_adjusted_rate(0.04, -0.10, self.ACTIVE)
+        rate_worse = _guardrail_adjusted_rate(0.04, -0.30, self.ACTIVE)
+        assert rate_exact == pytest.approx(self.ACTIVE["min_pct"])
+        assert rate_worse == pytest.approx(self.ACTIVE["min_pct"])
+
+    def test_partial_reduction_on_mild_negative_year(self):
+        # Return of -5% → midpoint between baseline and floor
+        rate = _guardrail_adjusted_rate(0.04, -0.05, self.ACTIVE)
+        expected = 0.04 - 0.5 * (0.04 - 0.036)  # t=0.5 → 3.8%
+        assert rate == pytest.approx(expected, rel=1e-6)
+
+    def test_ceiling_on_strong_gain_year(self):
+        # Return >= +20% → ceiling
+        rate_exact = _guardrail_adjusted_rate(0.04, 0.20, self.ACTIVE)
+        rate_better = _guardrail_adjusted_rate(0.04, 0.35, self.ACTIVE)
+        assert rate_exact == pytest.approx(self.ACTIVE["max_pct"])
+        assert rate_better == pytest.approx(self.ACTIVE["max_pct"])
+
+    def test_partial_increase_on_moderate_gain_year(self):
+        # Return of +10% → midpoint between baseline and ceiling
+        rate = _guardrail_adjusted_rate(0.04, 0.10, self.ACTIVE)
+        expected = 0.04 + 0.5 * (0.044 - 0.04)  # t=0.5 → 4.2%
+        assert rate == pytest.approx(expected, rel=1e-6)
+
+    def test_baseline_at_zero_return(self):
+        rate = _guardrail_adjusted_rate(0.04, 0.0, self.ACTIVE)
+        assert rate == pytest.approx(0.04)
+
+    def test_deterministic_for_same_inputs(self):
+        r1 = _guardrail_adjusted_rate(0.04, -0.07, self.ACTIVE)
+        r2 = _guardrail_adjusted_rate(0.04, -0.07, self.ACTIVE)
+        assert r1 == r2
+
+    def test_rate_always_within_guardrail_bounds(self):
+        for prior_return in [-0.50, -0.15, -0.10, -0.05, 0.0, 0.05, 0.10, 0.20, 0.40]:
+            rate = _guardrail_adjusted_rate(0.04, prior_return, self.ACTIVE)
+            assert self.ACTIVE["min_pct"] <= rate <= self.ACTIVE["max_pct"], (
+                f"rate={rate:.4f} out of bounds for prior_return={prior_return}"
+            )
+
+    def test_project_root_contains_users_json(self):
+        assert (project_root() / "data" / "users.json").exists()
+
+
+class TestApplyGuardrailToWithdrawal:
+    """Tests for _apply_guardrail_to_withdrawal (Guyton-Klinger clamp logic)."""
+
+    DISABLED = {
+        "enabled": False,
+        "baseline_pct": 0.04,
+        "min_pct": 0.036,
+        "max_pct": 0.044,
+    }
+    ACTIVE = {
+        "enabled": True,
+        "baseline_pct": 0.04,
+        "min_pct": 0.036,
+        "max_pct": 0.044,
+    }
+
+    def test_passthrough_when_disabled(self):
+        """Disabled guardrails return the inflation-grown amount unchanged."""
+        amount = 42_000.0
+        result, _ = _apply_guardrail_to_withdrawal(amount, 1_000_000.0, self.DISABLED, None)
+        assert result == amount
+
+    def test_within_band_unchanged(self):
+        """Withdrawal already within band is returned as-is."""
+        # 4.0% of 1_000_000 = 40_000 — within [3.6%, 4.4%]
+        amount = 40_000.0
+        result, rate = _apply_guardrail_to_withdrawal(amount, 1_000_000.0, self.ACTIVE, 0.05)
+        assert result == amount
+        assert abs(rate - 0.04) < 1e-9
+
+    def test_withdrawal_clamped_to_ceiling(self):
+        """When implied rate > max_pct, withdrawal is cut to ceiling."""
+        # 50_000 on 1_000_000 = 5% implied rate — above 4.4% ceiling
+        amount = 50_000.0
+        result, rate = _apply_guardrail_to_withdrawal(amount, 1_000_000.0, self.ACTIVE, 0.05)
+        assert abs(result - 44_000.0) < 1.0  # max_pct × balance
+        assert abs(rate - 0.044) < 1e-6
+
+    def test_withdrawal_raised_to_floor_after_strong_gain(self):
+        """When implied rate < min_pct (portfolio grew a lot), withdrawal is raised to target floor."""
+        # 30_000 on 1_000_000 = 3.0% — below 3.6% floor; prior year strong gain so target = baseline 4.0%
+        amount = 30_000.0
+        result, rate = _apply_guardrail_to_withdrawal(amount, 1_000_000.0, self.ACTIVE, 0.25)
+        assert result > amount  # must be raised
+        assert rate >= self.ACTIVE["min_pct"]
+
+    def test_floor_applied_on_severe_loss(self):
+        """After a severe loss year (-15%), floor is the guardrail min, not baseline."""
+        # 30_000 on 1_000_000 → 3% implied, below floor; prior year -15% so adjusted rate = min_pct
+        amount = 30_000.0
+        result, rate = _apply_guardrail_to_withdrawal(amount, 1_000_000.0, self.ACTIVE, -0.15)
+        assert abs(rate - 0.036) < 1e-6
+        assert abs(result - 36_000.0) < 1.0
+
+    def test_zero_balance_safe(self):
+        """Zero spendable balance does not raise ZeroDivisionError."""
+        result, rate = _apply_guardrail_to_withdrawal(40_000.0, 0.0, self.ACTIVE, 0.05)
+        assert result == 40_000.0  # passthrough when balance is zero
