@@ -612,6 +612,25 @@ def _load_guardrail_config(user_profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _load_household_guardrail_config(profiles: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return a shared guardrail config for joint simulations.
+
+    Joint mode uses a single household withdrawal rule. If any member has
+    guardrails enabled, use the first enabled config as the shared household
+    policy. This avoids request-order dependence and models the assumption that
+    both partners follow the same retirement spending practice.
+    """
+    if not profiles:
+        return _load_guardrail_config({})
+
+    configs = [_load_guardrail_config(profile) for profile in profiles]
+    for config in configs:
+        if config["enabled"]:
+            return config
+
+    return configs[0]
+
+
 def _guardrail_adjusted_rate(
     current_rate: float,
     prior_year_portfolio_return: float | None,
@@ -1783,7 +1802,7 @@ def run_joint_stress_test(
     inflation = DEFAULT_INFLATION_PCT / 100.0
     success_threshold = DEFAULT_SUCCESS_THRESHOLD_PCT / 100.0
     withdrawal_pct = float(profiles[0].get("withdrawal_pct") or DEFAULT_WITHDRAWAL_PCT)
-    guardrail_config = _load_guardrail_config(profiles[0])
+    guardrail_config = _load_household_guardrail_config(profiles)
     if guardrail_config["enabled"]:
         withdrawal_pct = guardrail_config["baseline_pct"]
     withdrawal_strategy = str(profiles[0].get("withdrawal_order") or WITHDRAWAL_STRATEGY_PROPORTIONAL)

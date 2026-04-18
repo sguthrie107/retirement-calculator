@@ -23,6 +23,7 @@ from app.services.monte_carlo import (
     _route_withdrawal,
     _student_t,
     _load_guardrail_config,
+    _load_household_guardrail_config,
     _guardrail_adjusted_rate,
     _apply_guardrail_to_withdrawal,
     AssetMoments,
@@ -689,6 +690,33 @@ class TestLoadGuardrailConfig:
         assert cfg["baseline_pct"] == pytest.approx(DEFAULT_GUARDRAIL_BASELINE_PCT)
         assert cfg["min_pct"] == pytest.approx(DEFAULT_GUARDRAIL_MIN_PCT)
         assert cfg["max_pct"] == pytest.approx(DEFAULT_GUARDRAIL_MAX_PCT)
+
+
+class TestLoadHouseholdGuardrailConfig:
+    def test_returns_fixed_when_none_enabled(self):
+        cfg = _load_household_guardrail_config([
+            {"name": "A", "withdrawal_pct": 0.05},
+            {"name": "B", "withdrawal_pct": 0.045},
+        ])
+        assert cfg["enabled"] is False
+        assert cfg["mode"] == WITHDRAWAL_MODE_FIXED
+
+    def test_returns_enabled_config_even_when_not_first(self):
+        cfg = _load_household_guardrail_config([
+            {"name": "A", "withdrawal_pct": 0.05},
+            {
+                "name": "B",
+                "withdrawal_guardrails": {
+                    "enabled": True,
+                    "baseline_pct": 0.04,
+                    "min_pct": 0.036,
+                    "max_pct": 0.044,
+                },
+            },
+        ])
+        assert cfg["enabled"] is True
+        assert cfg["mode"] == WITHDRAWAL_MODE_DYNAMIC
+        assert cfg["baseline_pct"] == pytest.approx(0.04)
 
 
 class TestGuardrailAdjustedRate:
