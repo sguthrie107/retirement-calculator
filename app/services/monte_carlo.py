@@ -837,7 +837,35 @@ def _annual_contribution(
 
     company_match_pct = float(contribution.get("company_match_pct", 0.0))
     vested_pct = float(contribution.get("company_match_vested_pct", 1.0))
-    company_match = salary * (company_match_pct * vested_pct)
+    company_match_start_year_raw = contribution.get("company_match_start_year")
+    company_match_start_year = (
+        int(company_match_start_year_raw)
+        if company_match_start_year_raw is not None
+        else None
+    )
+    company_match_employee_cap_pct_raw = contribution.get("company_match_employee_cap_pct")
+    company_match_employee_cap_pct = (
+        float(company_match_employee_cap_pct_raw)
+        if company_match_employee_cap_pct_raw is not None
+        else None
+    )
+
+    match_is_active = (
+        company_match_start_year is None
+        or calendar_year is None
+        or calendar_year >= company_match_start_year
+    )
+
+    if match_is_active:
+        if company_match_employee_cap_pct is not None:
+            match_eligible_pct = max(0.0, min(employee_pct, company_match_employee_cap_pct))
+            # Percent-based cap mode: e.g. 100% match up to 6% of salary.
+            company_match = salary * (match_eligible_pct * company_match_pct * vested_pct)
+        else:
+            # Backward-compatible mode: direct percent of salary.
+            company_match = salary * (company_match_pct * vested_pct)
+    else:
+        company_match = 0.0
 
     return max(employee_contribution, 0.0) + max(company_match, 0.0)
 
@@ -2223,6 +2251,8 @@ def run_joint_stress_test(
             "annual_salary": float(profile.get("contribution_details", {}).get("annual_salary", 0)),
             "contribution_pct": float(profile.get("contribution_details", {}).get("annual_contribution_pct", 0)),
             "company_match_pct": float(profile.get("contribution_details", {}).get("company_match_pct", 0)),
+            "company_match_start_year": profile.get("contribution_details", {}).get("company_match_start_year"),
+            "company_match_employee_cap_pct": profile.get("contribution_details", {}).get("company_match_employee_cap_pct"),
             "salary_growth_pct": float(profile.get("contribution_details", {}).get("salary_increase_pct", 0)),
             "hsa_monthly_contribution": float(profile.get("contribution_details", {}).get("hsa_monthly_contribution", 0)),
             "hsa_contribution_start_year": profile.get("contribution_details", {}).get("hsa_contribution_start_year"),

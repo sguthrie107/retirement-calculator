@@ -249,8 +249,26 @@ def _project_phase(
         if match_basis == "employee":
             employer_match = employee_contrib * match_pct
         else:
-            effective_match_pct = min(match_pct, effective_contribution_pct)
-            employer_match = current_salary * effective_match_pct
+            match_start_year = (
+                int((contribution_details or {}).get("company_match_start_year"))
+                if (contribution_details or {}).get("company_match_start_year") is not None
+                else None
+            )
+            vested_pct = float((contribution_details or {}).get("company_match_vested_pct", 1.0))
+            cap_pct_raw = (contribution_details or {}).get("company_match_employee_cap_pct")
+            cap_pct = float(cap_pct_raw) if cap_pct_raw is not None else None
+
+            match_is_active = match_start_year is None or year >= match_start_year
+            if match_is_active:
+                # Salary-basis match mode uses employee_pct cap when provided.
+                match_eligible_pct = (
+                    max(0.0, min(effective_contribution_pct, cap_pct))
+                    if cap_pct is not None
+                    else min(match_pct, effective_contribution_pct)
+                )
+                employer_match = current_salary * (match_eligible_pct * match_pct * vested_pct)
+            else:
+                employer_match = 0.0
         total_contrib = employee_contrib + employer_match
 
         # Model periodic contributions through the year instead of an upfront lump sum.

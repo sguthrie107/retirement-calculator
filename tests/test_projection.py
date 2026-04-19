@@ -40,6 +40,7 @@ from app.services.monte_carlo import (
 from app.services.comparison import (
     _allocation_sequence_risk_returns,
     _sequence_risk_returns_for_projected_portfolio,
+    _estimated_annual_contribution,
 )
 from lib.calculator_utils import compute_contribution_pct_for_year, project_root, load_user_profile
 from lib.display_utils import merge_projections
@@ -206,6 +207,42 @@ class TestAnnualContribution:
         )
         assert result == pytest.approx(8_000)
 
+    def test_company_match_starts_at_configured_year(self):
+        profile = self._make_profile(0.05, 1.0)
+        profile["contribution_details"].update({
+            "company_match_start_year": 2028,
+            "company_match_employee_cap_pct": 0.06,
+        })
+
+        before_start = _annual_contribution(
+            profile,
+            100_000,
+            calendar_year=2027,
+        )
+        at_start = _annual_contribution(
+            profile,
+            100_000,
+            calendar_year=2028,
+        )
+
+        assert before_start == pytest.approx(5_000)
+        assert at_start == pytest.approx(10_000)
+
+    def test_company_match_up_to_employee_cap_pct(self):
+        profile = self._make_profile(0.10, 1.0)
+        profile["contribution_details"].update({
+            "company_match_start_year": 2028,
+            "company_match_employee_cap_pct": 0.06,
+        })
+
+        result = _annual_contribution(
+            profile,
+            100_000,
+            calendar_year=2028,
+        )
+        # Employee contributes 10,000; company matches only first 6% (6,000).
+        assert result == pytest.approx(16_000)
+
 
 class TestContributionPctSchedule:
     def test_compute_contribution_pct_for_year_caps_at_limit(self):
@@ -219,6 +256,30 @@ class TestContributionPctSchedule:
         assert compute_contribution_pct_for_year(contribution_details, 2030) == pytest.approx(0.05)
         assert compute_contribution_pct_for_year(contribution_details, 2031) == pytest.approx(0.06)
         assert compute_contribution_pct_for_year(contribution_details, 2045) == pytest.approx(0.15)
+
+
+class TestEstimatedAnnualContribution:
+    def _profile(self):
+        return {
+            "contribution_details": {
+                "annual_salary": 100_000,
+                "salary_increase_pct": 0.0,
+                "annual_contribution_pct": 0.05,
+                "company_match_pct": 1.0,
+                "company_match_vested_pct": 1.0,
+                "annual_ira_contribution": 7_000,
+                "company_match_start_year": 2028,
+                "company_match_employee_cap_pct": 0.06,
+            }
+        }
+
+    def test_match_not_applied_before_start_year(self):
+        total = _estimated_annual_contribution(self._profile(), years_since_base=1)  # year 2027
+        assert total == pytest.approx(12_000)  # 5k employee + 0 match + 7k IRA
+
+    def test_match_applied_at_start_year_with_cap(self):
+        total = _estimated_annual_contribution(self._profile(), years_since_base=2)  # year 2028
+        assert total == pytest.approx(17_000)  # 5k employee + 5k match + 7k IRA
 
     def test_compute_contribution_pct_for_year_boosts_base_and_cap(self):
         contribution_details = {

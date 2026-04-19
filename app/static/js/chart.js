@@ -1806,7 +1806,23 @@ function renderStressTestResult(result) {
                 <td>${formatCurrency(m.starting_ira)}</td>
                 <td>${formatCurrency(m.starting_401k + m.starting_ira)}</td>
                 <td>${(m.contribution_pct * 100).toFixed(1)}%</td>
-                <td>${(m.company_match_pct * 100).toFixed(1)}%</td>
+                <td>${(() => {
+                    const matchPct = Number(m.company_match_pct || 0);
+                    const capPct = m.company_match_employee_cap_pct != null
+                        ? Number(m.company_match_employee_cap_pct)
+                        : null;
+                    const startYear = m.company_match_start_year != null
+                        ? Number(m.company_match_start_year)
+                        : null;
+                    let label = `${(matchPct * 100).toFixed(1)}%`;
+                    if (capPct != null) {
+                        label += ` up to ${(capPct * 100).toFixed(1)}%`;
+                    }
+                    if (startYear != null) {
+                        label += ` (from ${startYear})`;
+                    }
+                    return label;
+                })()}</td>
                 <td>${formatCurrency(m.annual_salary)}</td>
                 <td>${(m.salary_growth_pct * 100).toFixed(1)}%</td>
             </tr>`).join('')

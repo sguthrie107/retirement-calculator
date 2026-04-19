@@ -411,10 +411,36 @@ def _estimated_annual_contribution(
     )
     company_match_pct = float(contribution.get("company_match_pct", 0.0))
     vested_pct = float(contribution.get("company_match_vested_pct", 1.0))
+    company_match_start_year_raw = contribution.get("company_match_start_year")
+    company_match_start_year = (
+        int(company_match_start_year_raw)
+        if company_match_start_year_raw is not None
+        else None
+    )
+    company_match_employee_cap_pct_raw = contribution.get("company_match_employee_cap_pct")
+    company_match_employee_cap_pct = (
+        float(company_match_employee_cap_pct_raw)
+        if company_match_employee_cap_pct_raw is not None
+        else None
+    )
     annual_ira_contribution = float(contribution.get("annual_ira_contribution", 0.0))
 
     effective_salary = salary * ((1.0 + salary_growth) ** max(0, years_since_base))
-    annual_401k_contribution = effective_salary * (employee_pct + (company_match_pct * vested_pct))
+
+    employee_contribution = effective_salary * employee_pct
+    match_is_active = (
+        company_match_start_year is None or base_year >= company_match_start_year
+    )
+    if match_is_active:
+        if company_match_employee_cap_pct is not None:
+            match_eligible_pct = max(0.0, min(employee_pct, company_match_employee_cap_pct))
+            employer_match = effective_salary * (match_eligible_pct * company_match_pct * vested_pct)
+        else:
+            employer_match = effective_salary * (company_match_pct * vested_pct)
+    else:
+        employer_match = 0.0
+
+    annual_401k_contribution = employee_contribution + employer_match
     return max(annual_401k_contribution + annual_ira_contribution, 0.0)
 
 
