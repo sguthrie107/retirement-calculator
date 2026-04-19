@@ -2035,9 +2035,8 @@ def run_joint_stress_test(
                 if base_retirement_spending_annual > 0.0:
                     _, _, annual_spending_goal = _jt_precomputed_spending[simulation_year]
                     if enforce_retirement_spending_floor:
+                        # Optional floor: keep lifestyle above configured minimum.
                         annual_withdrawal = max(annual_withdrawal, annual_spending_goal)
-                    else:
-                        annual_withdrawal = annual_spending_goal
 
             household_social_security_income = sum(
                 _jt_precomputed_ss[i].get(ages[i], 0.0)
@@ -2267,7 +2266,7 @@ def run_joint_stress_test(
             "income_investment_strategy": "All modeled income cashflows are invested to a Boglehead 3-fund portfolio (FXAIX/FZILX/FXNAX).",
             "retirement_spending_floor_enabled": enforce_retirement_spending_floor,
             "retirement_spending_goal_mode": (
-                "floor" if enforce_retirement_spending_floor else "target"
+                "guardrail_first_with_floor" if enforce_retirement_spending_floor else "guardrail_first"
             ) if base_retirement_spending_annual > 0.0 else "withdrawal_rate_only",
             "retirement_spending_floor_annual_2026": round(base_retirement_spending_annual, 2),
             "hsa_medical_use_requires_spending_profile": True,
