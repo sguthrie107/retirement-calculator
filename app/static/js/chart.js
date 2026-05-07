@@ -2275,7 +2275,22 @@ async function recalculateStressTest() {
 }
 
 // Balance form functions
+function resetBalanceFormState() {
+    const form = document.getElementById('balanceForm');
+    if (form) {
+        form.reset();
+    }
+
+    const submitButton = form ? form.querySelector('button[type="submit"]') : null;
+    if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Save';
+    }
+}
+
 function showBalanceForm() {
+    resetBalanceFormState();
+
     // Populate comparison-year dropdown from projection horizon
     const yearSelect = document.getElementById('year');
     while (yearSelect.children.length > 1) {
@@ -2310,11 +2325,14 @@ function showBalanceForm() {
 
 function hideBalanceForm() {
     document.getElementById('balanceModal').style.display = 'none';
-    document.getElementById('balanceForm').reset();
+    resetBalanceFormState();
 }
 
 async function submitBalance(event) {
     event.preventDefault();
+
+    const form = document.getElementById('balanceForm');
+    const submitButton = form ? form.querySelector('button[type="submit"]') : null;
     
     const username = document.getElementById('userSelect').value;
     const comparisonYear = parseInt(document.getElementById('year').value);
@@ -2327,12 +2345,20 @@ async function submitBalance(event) {
         alert('Please enter at least one balance value');
         return;
     }
+
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = 'Saving...';
+    }
     
     try {
+        const savedAccounts = [];
+        const conflictAccounts = [];
+
         // Submit 401k balance if provided
         if (balance401k > 0) {
             console.log(`Submitting 401k balance: ${balance401k} for comparison year ${comparisonYear} (stored year ${storedYear})`);
-            const response401k = await fetch(`/api/balances/${username}`, {
+            const response401k = await fetch(`/api/balances/${encodeURIComponent(username)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2344,19 +2370,19 @@ async function submitBalance(event) {
             });
             
             if (response401k.status === 409) {
-                alert('A 401k balance for this year already exists. Please edit the existing entry.');
-                return;
-            }
-            
-            if (!response401k.ok) {
-                throw new Error(`401k: HTTP ${response401k.status}: ${response401k.statusText}`);
+                conflictAccounts.push('401k');
+            } else {
+                if (!response401k.ok) {
+                    throw new Error(`401k: HTTP ${response401k.status}: ${response401k.statusText}`);
+                }
+                savedAccounts.push('401k');
             }
         }
         
         // Submit IRA balance if provided
         if (balanceIRA > 0) {
             console.log(`Submitting IRA balance: ${balanceIRA} for comparison year ${comparisonYear} (stored year ${storedYear})`);
-            const responseIRA = await fetch(`/api/balances/${username}`, {
+            const responseIRA = await fetch(`/api/balances/${encodeURIComponent(username)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2368,21 +2394,38 @@ async function submitBalance(event) {
             });
             
             if (responseIRA.status === 409) {
-                alert('A Roth IRA balance for this year already exists. Please edit the existing entry.');
-                return;
+                conflictAccounts.push('Roth IRA');
+            } else {
+                if (!responseIRA.ok) {
+                    throw new Error(`IRA: HTTP ${responseIRA.status}: ${responseIRA.statusText}`);
+                }
+                savedAccounts.push('Roth IRA');
             }
-            
-            if (!responseIRA.ok) {
-                throw new Error(`IRA: HTTP ${responseIRA.status}: ${responseIRA.statusText}`);
-            }
+        }
+
+        if (savedAccounts.length === 0 && conflictAccounts.length > 0) {
+            const accountsLabel = conflictAccounts.join(' and ');
+            alert(`A ${accountsLabel} balance for this year already exists. Please edit the existing entry.`);
+            return;
         }
         
         hideBalanceForm();
-        loadUserData(); // Refresh chart and table
+        await loadUserData(); // Refresh chart and table before allowing another add
+
+        if (conflictAccounts.length > 0) {
+            alert(`Saved ${savedAccounts.join(' and ')}. ${conflictAccounts.join(' and ')} already existed for this year.`);
+            return;
+        }
+
         alert('Balance(s) added successfully!');
     } catch (error) {
         console.error('Error submitting balance:', error);
         alert(`Error: ${error.message}`);
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Save';
+        }
     }
 }
 
