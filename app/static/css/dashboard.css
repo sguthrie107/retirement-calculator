@@ -339,7 +339,6 @@ header p {
 .chart-title {
     margin: 0;
     margin-bottom: 1.25rem;
-    font-size: 1.35rem;
     font-weight: 700;
     color: var(--text-primary);
 }
@@ -499,6 +498,86 @@ select:focus {
 .btn-secondary:hover {
     background: var(--surface-hover);
     border-color: var(--trim-color);
+}
+
+.faq-section {
+    background: var(--surface);
+    padding: 2rem;
+    border-radius: 16px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+}
+
+.faq-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.faq-header h2 {
+    margin-bottom: 0.2rem;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.faq-header p {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+}
+
+.faq-list {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.faq-item {
+    background: var(--background-light);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.faq-item summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 1rem 1.25rem;
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.faq-item summary::-webkit-details-marker {
+    display: none;
+}
+
+.faq-item summary::after {
+    content: "+";
+    color: var(--primary-color);
+    font-size: 1.25rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.faq-item[open] summary::after {
+    content: "-";
+}
+
+.faq-answer {
+    padding: 0 1.25rem 1.1rem;
+    color: var(--text-secondary);
+    font-size: 0.93rem;
+}
+
+.faq-answer p {
+    margin: 0;
 }
 
 /* Delta table */
@@ -1330,8 +1409,7 @@ html {
 
     .stress-header h2,
     .delta-section h2,
-    .holdings-header h2,
-    .chart-title {
+    .holdings-header h2 {
         font-size: 1.1rem;
     }
 
