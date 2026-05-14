@@ -41,6 +41,7 @@ from app.services.comparison import (
     _allocation_sequence_risk_returns,
     _sequence_risk_returns_for_projected_portfolio,
     _estimated_annual_contribution,
+    compute_deltas,
 )
 from lib.calculator_utils import compute_contribution_pct_for_year, project_root, load_user_profile
 from lib.display_utils import merge_projections
@@ -620,6 +621,40 @@ class TestSocialSecurity:
             self._profile(), current_age=65, retirement_age=65, claim_age=67
         )
         assert benefit == 0.0
+
+
+# ---------------------------------------------------------------------------
+# compute_deltas
+# ---------------------------------------------------------------------------
+
+class TestComputeDeltas:
+    def test_includes_historical_inflation_for_actual_year(self):
+        projected = [{"year": 2024, "balance": 100_000.0}]
+        actual = [{
+            "year": 2024,
+            "balance": 105_000.0,
+            "balance_ids": [1],
+            "timestamp": "2026-05-14T12:00:00",
+            "account_balances": {"401k": 80_000.0, "roth_ira": 25_000.0},
+        }]
+
+        deltas = compute_deltas(projected, actual)
+
+        assert deltas[0]["actual_inflation_pct"] == pytest.approx(2.9)
+
+    def test_uses_none_when_no_historical_inflation_is_available(self):
+        projected = [{"year": 2030, "balance": 100_000.0}]
+        actual = [{
+            "year": 2030,
+            "balance": 95_000.0,
+            "balance_ids": [1],
+            "timestamp": "2026-05-14T12:00:00",
+            "account_balances": {"401k": 70_000.0, "roth_ira": 25_000.0},
+        }]
+
+        deltas = compute_deltas(projected, actual)
+
+        assert deltas[0]["actual_inflation_pct"] is None
 
 
 # ---------------------------------------------------------------------------

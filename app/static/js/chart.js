@@ -1290,7 +1290,7 @@ function renderDeltaTable(deltas) {
         delete _benchmarkCharts[k];
     });
 
-    const COL_COUNT = 8; // year, projected, actual, diff$, diff%, updated, actions, compare
+    const COL_COUNT = 9; // year, projected, actual, diff$, diff%, inflation, updated, actions, compare
     
     let html = '<table class="performance-comparison-table"><thead><tr>';
     html += '<th>Year</th>';
@@ -1298,6 +1298,7 @@ function renderDeltaTable(deltas) {
     html += '<th>Actual</th>';
     html += '<th>Difference ($)</th>';
     html += '<th>Difference (%)</th>';
+    html += '<th>Actual CPI</th>';
     html += '<th>Last Updated</th>';
     html += '<th>Actions</th>';
     html += '<th>vs. Benchmark</th>';
@@ -1306,6 +1307,7 @@ function renderDeltaTable(deltas) {
     deltas.forEach((delta, idx) => {
         const hasProjected = delta.has_projection !== false;
         const hasDelta = hasProjected && Number.isFinite(Number(delta.delta));
+        const hasInflation = Number.isFinite(Number(delta.actual_inflation_pct));
         const diffClass = !hasDelta ? '' : (delta.delta >= 0 ? 'positive' : 'negative');
         const diffSign = hasDelta && delta.delta >= 0 ? '+' : '';
         const balanceIdStr = delta.balance_ids ? delta.balance_ids.join(',') : '';
@@ -1346,6 +1348,7 @@ function renderDeltaTable(deltas) {
         html += `<td>${formatCurrency(delta.actual)}</td>`;
         html += `<td class="${diffClass}">${hasDelta ? `${diffSign}${formatCurrency(delta.delta)}` : '—'}</td>`;
         html += `<td class="${diffClass}">${hasDelta ? `${diffSign}${Number(delta.delta_pct).toFixed(2)}%` : '—'}</td>`;
+        html += `<td>${hasInflation ? `${Number(delta.actual_inflation_pct).toFixed(1)}%` : '—'}</td>`;
         html += `<td>${timestampDisplay}</td>`;
         html += `<td class="action-buttons">
                     <button type="button" class="btn-edit" data-balance-ids="${balanceIdStr}" data-year="${delta.year}" data-balance="${delta.actual}" title="Edit">✏️</button>

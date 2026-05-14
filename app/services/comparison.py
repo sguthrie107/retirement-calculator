@@ -22,6 +22,34 @@ from lib.calculator_utils import (
 ACTUAL_BALANCE_YEAR_OFFSET = -1
 DEFAULT_SEQUENCE_RISK_RETURNS = [-0.18, -0.10, -0.05, 0.00, 0.03, 0.05, 0.04, 0.03, 0.03, 0.025]
 BOND_SEQUENCE_RISK_RETURNS = [0.04, 0.035, 0.03, 0.028, 0.03, 0.032, 0.03, 0.028, 0.026, 0.025]
+HISTORICAL_US_INFLATION_BY_YEAR = {
+    2000: 3.4,
+    2001: 1.6,
+    2002: 2.4,
+    2003: 1.9,
+    2004: 3.3,
+    2005: 3.4,
+    2006: 2.5,
+    2007: 4.1,
+    2008: 0.1,
+    2009: 2.7,
+    2010: 1.5,
+    2011: 3.0,
+    2012: 1.7,
+    2013: 1.5,
+    2014: 0.8,
+    2015: 0.7,
+    2016: 2.1,
+    2017: 2.1,
+    2018: 1.9,
+    2019: 2.3,
+    2020: 1.4,
+    2021: 7.0,
+    2022: 6.5,
+    2023: 3.4,
+    2024: 2.9,
+    2025: 2.7,
+}
 
 
 def _parse_joint_usernames(username: str) -> list[str] | None:
@@ -136,6 +164,10 @@ def _normalize_actual_balance_year(stored_year: int) -> int:
 
 def _normalize_chart_seed_year(stored_year: int) -> int:
     return _normalize_actual_balance_year(stored_year)
+
+
+def _historical_inflation_for_year(year: int) -> float | None:
+    return HISTORICAL_US_INFLATION_BY_YEAR.get(int(year))
 
 
 def _first_point_at_or_after_year(projected: list[dict], target_year: int) -> dict | None:
@@ -906,6 +938,7 @@ def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
         year = a["year"]
         proj_bal = proj_by_year.get(year)
         actual_bal = a["balance"]
+        actual_inflation_pct = _historical_inflation_for_year(year)
 
         if proj_bal is None:
             deltas.append({
@@ -918,6 +951,7 @@ def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
                 "balance_ids": a.get("balance_ids", []),
                 "timestamp": a.get("timestamp"),
                 "account_balances": a.get("account_balances", {}),
+                "actual_inflation_pct": actual_inflation_pct,
             })
             continue
 
@@ -934,6 +968,7 @@ def compute_deltas(projected: list[dict], actual: list[dict]) -> list[dict]:
             "balance_ids": a.get("balance_ids", []),
             "timestamp": a.get("timestamp"),
             "account_balances": a.get("account_balances", {}),
+            "actual_inflation_pct": actual_inflation_pct,
         })
     
     return deltas
