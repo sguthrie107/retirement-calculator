@@ -11,13 +11,14 @@ let currentSingleUserMatchScenarios = null;
 let currentAllUsersData = null;
 let selectedDeductionRate = 0.05;
 let isStandardDeductionEnabled = false;
+const APP_FONT_FAMILY = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif';
 
 // ── Benchmark comparison state ─────────────────────────────────────────────
 const _benchmarkCache  = {};   // keyed "username_year"  → API response payload
 const _benchmarkCharts = {};   // keyed "username_year"  → Chart.js instance
 
 if (window.Chart) {
-    Chart.defaults.font.family = 'Montserrat, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    Chart.defaults.font.family = APP_FONT_FAMILY;
     Chart.defaults.color = '#475569';
 }
 
@@ -607,7 +608,7 @@ function renderSingleUserChart(username, data, matchScenarios = null) {
             ctx2d.stroke();
 
             ctx2d.fillStyle = '#0F172A';
-            ctx2d.font = '600 11px Montserrat';
+            ctx2d.font = `600 11px ${APP_FONT_FAMILY}`;
             ctx2d.textAlign = 'center';
             ctx2d.fillText('Retirement', x, top + 14);
             ctx2d.restore();
@@ -1691,7 +1692,7 @@ function _renderBenchmarkPanel(year, data) {
                 legend: {
                     position: 'top',
                     labels: {
-                        font:     { size: 11, family: 'Montserrat, sans-serif' },
+                        font:     { size: 11, family: APP_FONT_FAMILY },
                         boxWidth: 14,
                         padding:  16,
                     },
