@@ -259,9 +259,9 @@
             const stressSection = document.getElementById('stressTestSection');
             if (stressSection) stressSection.style.display = 'block';
             
-            // Render via standard loader so all scenario overlays are fetched
+            // Render immediately from server-provided data and fetch lighter follow-up data in the background.
             if (typeof window.loadSingleUser === 'function') {
-                window.loadSingleUser(selectedUserInit);
+                window.loadSingleUser(selectedUserInit, initialData);
             } else {
                 renderSingleUserChart(selectedUserInit, initialData);
                 renderDeltaTable(initialData.deltas);
@@ -283,9 +283,5 @@
     } else {
         renderInitialData();
     }
-    
-    // Multiple timeouts to ensure it runs
-    setTimeout(renderInitialData, 50);
-    setTimeout(renderInitialData, 200);
 </script>
 {% endblock %}

@@ -322,34 +322,39 @@ async function loadUserData() {
     loadSingleUser(selectedValue);
 }
 
-async function loadSingleUser(username) {
+async function loadSingleUser(username, initialDataOverride = null) {
     try {
         console.log('loadSingleUser called for:', username);
-        const apiUrl = `/api/comparison/${username}`;
-        console.log('Fetching from:', apiUrl);
-
-        // Fetch comparison data and (for Steven) match scenarios in parallel
-        const fetchComparison = fetch(apiUrl);
-        const fetchScenarios = (username === 'Steven')
-            ? fetch(`/api/match-scenarios/${username}`)
-            : Promise.resolve(null);
-
-        const [response, scenariosResponse] = await Promise.all([fetchComparison, fetchScenarios]);
-        console.log('API response:', response.status, response.statusText);
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        console.log('API response received. Data:', data);
-        console.log('Projected data points:', data.projected ? data.projected.length : 'none');
-        console.log('Deltas from API:', data.deltas);
-
+        const hasInitialData = Boolean(initialDataOverride);
+        let data = initialDataOverride;
         let matchScenarios = null;
-        if (scenariosResponse && scenariosResponse.ok) {
-            matchScenarios = await scenariosResponse.json();
-            console.log('Match scenarios loaded:', matchScenarios ? Object.keys(matchScenarios) : 'none');
+
+        if (!hasInitialData) {
+            const apiUrl = `/api/comparison/${username}`;
+            console.log('Fetching from:', apiUrl);
+
+            // Fetch comparison data and (for Steven) match scenarios in parallel
+            const fetchComparison = fetch(apiUrl);
+            const fetchScenarios = (username === 'Steven')
+                ? fetch(`/api/match-scenarios/${username}`)
+                : Promise.resolve(null);
+
+            const [response, scenariosResponse] = await Promise.all([fetchComparison, fetchScenarios]);
+            console.log('API response:', response.status, response.statusText);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            data = await response.json();
+            console.log('API response received. Data:', data);
+            console.log('Projected data points:', data.projected ? data.projected.length : 'none');
+            console.log('Deltas from API:', data.deltas);
+
+            if (scenariosResponse && scenariosResponse.ok) {
+                matchScenarios = await scenariosResponse.json();
+                console.log('Match scenarios loaded:', matchScenarios ? Object.keys(matchScenarios) : 'none');
+            }
         }
 
         currentSingleUsername = username;
@@ -365,8 +370,26 @@ async function loadSingleUser(username) {
 
         renderSingleUserChart(username, data, matchScenarios);
         renderDeltaTable(data.deltas);
-        await loadHoldings(username);
-        await syncStressTestUiForSelection(username);
+
+        const backgroundTasks = [loadHoldings(username), syncStressTestUiForSelection(username)];
+        if (hasInitialData && username === 'Steven') {
+            backgroundTasks.push((async () => {
+                const scenariosResponse = await fetch(`/api/match-scenarios/${username}`);
+                if (!scenariosResponse.ok) {
+                    return;
+                }
+
+                const scenarios = await scenariosResponse.json();
+                if (currentSingleUsername !== username) {
+                    return;
+                }
+
+                currentSingleUserMatchScenarios = scenarios;
+                renderSingleUserChart(username, currentSingleUserData, scenarios);
+            })());
+        }
+
+        await Promise.all(backgroundTasks);
     } catch (error) {
         console.error('Error loading user data:', error);
         document.getElementById('deltaContent').innerHTML = 
