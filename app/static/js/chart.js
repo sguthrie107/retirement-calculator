@@ -109,17 +109,28 @@ function syncDeductionControls() {
     }
 }
 
+function refreshSelectedUserView() {
+    const userSelect = document.getElementById('userSelect');
+    const selectedUser = userSelect ? userSelect.value : currentSingleUsername;
+
+    if (selectedUser && selectedUser !== 'all') {
+        if (selectedUser === currentSingleUsername && currentSingleUserData) {
+            rerenderCurrentUserChart();
+            return;
+        }
+
+        loadSingleUser(selectedUser);
+        return;
+    }
+
+    rerenderCurrentUserChart();
+}
+
 function onStandardDeductionToggleChange() {
     const toggle = document.getElementById('standardDeductionToggle');
     isStandardDeductionEnabled = Boolean(toggle?.checked);
     syncDeductionControls();
-    const userSelect = document.getElementById('userSelect');
-    const selectedUser = userSelect ? userSelect.value : currentSingleUsername;
-    if (selectedUser && selectedUser !== 'all') {
-        loadSingleUser(selectedUser);
-        return;
-    }
-    rerenderCurrentUserChart();
+    refreshSelectedUserView();
 }
 
 function onDeductionRateChange() {
@@ -130,13 +141,7 @@ function onDeductionRateChange() {
         if (toggle) toggle.checked = true;
     }
     syncDeductionControls();
-    const userSelect = document.getElementById('userSelect');
-    const selectedUser = userSelect ? userSelect.value : currentSingleUsername;
-    if (selectedUser && selectedUser !== 'all') {
-        loadSingleUser(selectedUser);
-        return;
-    }
-    rerenderCurrentUserChart();
+    refreshSelectedUserView();
 }
 
 function rerenderCurrentUserChart() {

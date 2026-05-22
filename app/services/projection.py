@@ -1,4 +1,7 @@
 """Projection service - wraps existing retirement calculator engine."""
+import copy
+import functools
+
 import pandas as pd
 
 from lib.plan_by_age import retirement_401k_full_plan, _calculate_blended_yield_and_appreciation
@@ -85,14 +88,15 @@ def _compute_rental_income_overlay(
     return overlay
 
 
-def _build_projected_series(
+@functools.lru_cache(maxsize=32)
+def _build_projected_series_cached(
     username: str,
     current_year: int = 2026,
     *,
     contribution_pct_override: float | None = None,
     contribution_pct_boost: float = 0.0,
 ) -> list[dict]:
-    """Build a projected account series for baseline or scenario use."""
+    """Build and cache a projected account series for deterministic scenarios."""
     user_profile = _load_user_profile(username)
 
     df_401k = retirement_401k_full_plan(
@@ -139,6 +143,26 @@ def _build_projected_series(
         })
 
     return projected
+
+
+def _build_projected_series(
+    username: str,
+    current_year: int = 2026,
+    *,
+    contribution_pct_override: float | None = None,
+    contribution_pct_boost: float = 0.0,
+) -> list[dict]:
+    """Return a defensive copy of a cached projected account series."""
+    return copy.deepcopy(
+        _build_projected_series_cached(
+            username,
+            int(current_year),
+            contribution_pct_override=(
+                None if contribution_pct_override is None else float(contribution_pct_override)
+            ),
+            contribution_pct_boost=float(contribution_pct_boost),
+        )
+    )
 
 
 def get_user_projection(username: str, current_year: int = 2026) -> dict:

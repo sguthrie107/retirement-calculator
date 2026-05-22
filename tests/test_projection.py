@@ -8,6 +8,7 @@ import random
 import pytest
 import pandas as pd
 
+from app.services import projection as projection_service
 from app.services.monte_carlo import (
     _allocation_moments,
     _annual_contribution,
@@ -413,6 +414,52 @@ class TestMergeProjections:
         assert float(merged.loc[0, "withdrawal"]) == pytest.approx(9_000.0)
         assert float(merged.loc[0, "balance"]) == pytest.approx(91_000.0)
         assert float(merged.loc[0, "ira_balance"]) == pytest.approx(50_000.0)
+
+
+class TestProjectionServiceCaching:
+    def test_build_projected_series_reuses_cached_scenarios(self, monkeypatch):
+        projection_service._build_projected_series_cached.cache_clear()
+        call_counts = {"401k": 0, "ira": 0, "overlay": 0}
+
+        def fake_401k(*_args, **_kwargs):
+            call_counts["401k"] += 1
+            return pd.DataFrame({"year": [2026], "balance": [1_000.0]})
+
+        def fake_ira(*_args, **_kwargs):
+            call_counts["ira"] += 1
+            return pd.DataFrame({"year": [2026], "ira_balance": [500.0]})
+
+        def fake_overlay(*_args, **_kwargs):
+            call_counts["overlay"] += 1
+            return {}
+
+        monkeypatch.setattr(projection_service, "_load_user_profile", lambda _username: {})
+        monkeypatch.setattr(projection_service, "retirement_401k_full_plan", fake_401k)
+        monkeypatch.setattr(projection_service, "retirement_ira_full_plan", fake_ira)
+        monkeypatch.setattr(
+            projection_service,
+            "merge_projections",
+            lambda *_args, **_kwargs: pd.DataFrame({"year": [2026], "total_balance": [1_500.0]}),
+        )
+        monkeypatch.setattr(projection_service, "_compute_rental_income_overlay", fake_overlay)
+
+        baseline_first = projection_service._build_projected_series("Steven")
+        baseline_second = projection_service._build_projected_series("Steven")
+        boosted_first = projection_service._build_projected_series("Steven", contribution_pct_boost=0.03)
+        boosted_second = projection_service._build_projected_series("Steven", contribution_pct_boost=0.03)
+
+        assert baseline_first == baseline_second
+        assert boosted_first == boosted_second
+        assert baseline_first is not baseline_second
+        assert boosted_first is not boosted_second
+
+        baseline_first[0]["balance"] = 999.0
+        fresh_baseline = projection_service._build_projected_series("Steven")
+
+        assert fresh_baseline[0]["balance"] == pytest.approx(1_500.0)
+        assert call_counts == {"401k": 2, "ira": 2, "overlay": 2}
+
+        projection_service._build_projected_series_cached.cache_clear()
 
 
 # ---------------------------------------------------------------------------
