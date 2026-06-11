@@ -223,11 +223,12 @@ function renderHoldingsCard(payload) {
     const rowsHtml = payload.holdings.map((row) => {
         const trendClass = getTrendClass(row.day_change_pct);
         const priceDisplay = Number.isFinite(Number(row.price)) ? formatCurrency(Number(row.price)) : '—';
+        const accountDisplay = row.account_type === '401k' ? '401k' : 'IRA';
         return `
             <tr>
-                <td>${row.account_type === '401k' ? '401k' : 'IRA'}</td>
                 <td>${row.ticker}</td>
                 <td>${row.label || row.ticker}</td>
+                <td>${accountDisplay}</td>
                 <td>${Number(row.allocation_pct || 0).toFixed(1)}%</td>
                 <td>${Number(row.portfolio_weight_pct || 0).toFixed(1)}%</td>
                 <td>${priceDisplay}</td>
@@ -241,9 +242,9 @@ function renderHoldingsCard(payload) {
         <table class="holdings-table">
             <thead>
                 <tr>
-                    <th>Account</th>
                     <th>Ticker</th>
                     <th>Fund</th>
+                    <th>ACCT</th>
                     <th>Acct Weight</th>
                     <th>Portfolio Wt</th>
                     <th>Price</th>
