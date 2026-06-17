@@ -46,17 +46,20 @@ body::before,
 body::after {
     content: "";
     position: fixed;
-    inset: 0;
+    inset: -64px;
     pointer-events: none;
     z-index: 0;
     background-repeat: repeat;
+    will-change: transform;
+    backface-visibility: hidden;
+    transform: translate3d(0, 0, 0);
 }
 
 body::before {
     background-image:
         radial-gradient(circle, var(--dot-grid-color) 1.2px, transparent 1.3px);
     background-size: 26px 26px;
-    animation: dot-wave-primary 18s ease-in-out infinite;
+    animation: dot-wave-primary 26s linear infinite;
     opacity: 0.8;
 }
 
@@ -65,7 +68,7 @@ body::after {
         radial-gradient(circle, var(--dot-grid-color-soft) 1px, transparent 1.1px);
     background-size: 26px 26px;
     background-position: 13px 13px;
-    animation: dot-wave-secondary 24s ease-in-out infinite reverse;
+    animation: dot-wave-secondary 34s linear infinite;
     opacity: 0.7;
 }
 
@@ -76,47 +79,37 @@ body > * {
 
 @keyframes dot-wave-primary {
     0% {
-        background-position: 0 0;
-        transform: translateY(0px);
+        transform: translate3d(0, 0, 0);
     }
     25% {
-        background-position: 24px -8px;
-        transform: translateY(-8px);
+        transform: translate3d(13px, -6px, 0);
     }
     50% {
-        background-position: 48px 0;
-        transform: translateY(0px);
+        transform: translate3d(26px, 0, 0);
     }
     75% {
-        background-position: 24px 8px;
-        transform: translateY(8px);
+        transform: translate3d(39px, 6px, 0);
     }
     100% {
-        background-position: 0 0;
-        transform: translateY(0px);
+        transform: translate3d(52px, 0, 0);
     }
 }
 
 @keyframes dot-wave-secondary {
     0% {
-        background-position: 13px 13px;
-        transform: translateY(0px);
+        transform: translate3d(0, 0, 0);
     }
     25% {
-        background-position: -11px 20px;
-        transform: translateY(6px);
+        transform: translate3d(-13px, 5px, 0);
     }
     50% {
-        background-position: -35px 13px;
-        transform: translateY(0px);
+        transform: translate3d(-26px, 0, 0);
     }
     75% {
-        background-position: -11px 6px;
-        transform: translateY(-6px);
+        transform: translate3d(-39px, -5px, 0);
     }
     100% {
-        background-position: 13px 13px;
-        transform: translateY(0px);
+        transform: translate3d(-52px, 0, 0);
     }
 }
 
