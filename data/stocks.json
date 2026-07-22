@@ -46,6 +46,28 @@
       "volatility_pct": 18.2
     },
     {
+      "ticker": "FNCMX",
+      "52_week_high": 235.60,
+      "52_week_low": 178.15,
+      "allocation_domestic_pct": 100,
+      "allocation_international_pct": 0,
+      "assets_under_management_billions": 12.5,
+      "category": "US Large Cap Growth / Technology-Heavy",
+      "current_price": 224.90,
+      "dividend_yield_pct": 0.55,
+      "expense_ratio": 0.29,
+      "expense_ratio_note": "Moderate expense ratio for an actively-tracked index fund",
+      "fund_type": "Index Fund",
+      "holdings_count": 2500,
+      "inception_date": "2004-09-07",
+      "name": "Fidelity Nasdaq Composite Index Fund",
+      "projected_annual_return_pct": 11.5,
+      "rebalance_frequency": "Annual",
+      "return_assumption_basis": "Long-term Nasdaq Composite average",
+      "top_holdings": ["AAPL", "MSFT", "NVDA"],
+      "volatility_pct": 24.0
+    },
+    {
       "ticker": "FXAIX",
       "52_week_high": 162.85,
       "52_week_low": 129.90,

@@ -51,6 +51,7 @@ TICKER_PROXY_MAP: dict[str, str] = {
     # Fidelity equity index / active
     "FXAIX": "VOO",    # S&P 500 index
     "FSPGX": "VUG",    # Large-cap growth → Vanguard Growth ETF
+    "FNCMX": "ONEQ",   # Nasdaq Composite Index → Fidelity Nasdaq Composite ETF
     "FSGGX": "VXUS",   # Global Equity ex-US
     # Fidelity bond funds
     "FUAMX": "VCIT",   # Intermediate corp bonds
@@ -69,6 +70,7 @@ PROXY_TICKER_INFO: dict[str, str] = {
     "VTI":  "Vanguard Total Stock Market ETF",
     "VOO":  "Vanguard S&P 500 ETF",
     "VUG":  "Vanguard Growth ETF",
+    "ONEQ": "Fidelity Nasdaq Composite Index ETF",
     "VXUS": "Vanguard Total International ETF",
     "BND":  "Vanguard Total Bond Market ETF",
     "AGG":  "iShares Core US Aggregate Bond ETF",
