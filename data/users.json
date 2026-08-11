@@ -35,7 +35,7 @@
           }
         ]
       },
-      "current_401k_balance": 60000,
+      "current_401k_balance": 71000,
       "contribution_details": {
         "annual_salary": 135000,
         "annual_contribution_pct": 0.05,
@@ -60,6 +60,25 @@
       "fund_provider": "Fidelity",
       "current_ira_balance": 40000,
       "current_hsa_balance": 10000,
+      "current_brokerage_balance": 0,
+      "dream_career_scenario": {
+        "enabled": true,
+        "transition_age": 55,
+        "whitewater_center": {
+          "hourly_rate_2026_dollars": 20,
+          "weekly_hours": 30
+        },
+        "crossfit_coaching": {
+          "pay_per_class_2026_dollars": 25,
+          "pay_per_class_note": "ASSUMPTION - typical market range is $20-40/class; confirm and adjust to your local box's actual rate",
+          "classes_per_week": 8
+        },
+        "weeks_per_year": 52,
+        "stop_401k_contributions": true,
+        "stop_401k_match": true,
+        "monthly_brokerage_contribution_2026_dollars": 1500,
+        "income_inflation_pct": 0.03
+      },
       "ira_phases": {
         "phase_1": {
           "name": "Growth (Up to 50)",
@@ -107,8 +126,9 @@
           "name": "Growth (Up to 50)",
           "end_age": 50,
           "allocation": {
-            "us_stock": { "pct": 0.70, "ticker": "FXAIX", "label": "S&P 500" },
-            "foreign_stock": { "pct": 0.30, "ticker": "FSGGX", "label": "Global Equity" }
+            "us_stock": { "pct": 0.60, "ticker": "FXAIX", "label": "S&P 500" },
+            "foreign_stock": { "pct": 0.25, "ticker": "FSGGX", "label": "International Index" },
+            "small_cap": { "pct": 0.15, "ticker": "FSSNX", "label": "Small Cap Index" }
           }
         },
         "phase_2": {

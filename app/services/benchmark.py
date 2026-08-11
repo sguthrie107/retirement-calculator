@@ -53,6 +53,7 @@ TICKER_PROXY_MAP: dict[str, str] = {
     "FSPGX": "VUG",    # Large-cap growth → Vanguard Growth ETF
     "FNCMX": "ONEQ",   # Nasdaq Composite Index → Fidelity Nasdaq Composite ETF
     "FSGGX": "VXUS",   # Global Equity ex-US
+    "FSSNX": "VB",     # Small Cap Index → Vanguard Small-Cap ETF
     # Fidelity bond funds
     "FUAMX": "VCIT",   # Intermediate corp bonds
     "FNAX":  "AGG",    # US aggregate bonds
@@ -72,6 +73,7 @@ PROXY_TICKER_INFO: dict[str, str] = {
     "VUG":  "Vanguard Growth ETF",
     "ONEQ": "Fidelity Nasdaq Composite Index ETF",
     "VXUS": "Vanguard Total International ETF",
+    "VB":   "Vanguard Small-Cap ETF",
     "BND":  "Vanguard Total Bond Market ETF",
     "AGG":  "iShares Core US Aggregate Bond ETF",
     "VCIT": "Vanguard Intermediate-Term Corp Bond ETF",

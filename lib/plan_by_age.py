@@ -10,15 +10,16 @@ from .calculator_utils import compute_contribution_pct_for_year
 """
 401k Retirement Plan - Age-Based Phase Projections
 
-Phase 1 (Up to 50):  70% US Stock / 30% Foreign Stock
+Phase 1 (Up to 50):  60% US Stock / 25% Foreign Stock / 15% Small Cap (Steven)
 Phase 2 (50 to 65):  60% US Stock / 20% Foreign Stock / 20% Bonds
 Phase 3 (65+):       40% US Stock / 20% Foreign Stock / 40% Bonds
 
 US Stock:     S&P 500 Mutual Funds
 Foreign Stock: Ex-US Mutual Funds
+Small Cap:    US Small Cap Index Funds
 Bonds:        Total Bond Market Funds
 
-Steven → Fidelity funds (FXAIX, FSGGX, FXNAX)
+Steven → Fidelity funds (FXAIX, FSGGX, FSSNX, FXNAX)
 Alyssa → Vanguard Admiral funds (VFIAX, VTIAX, VBTLX)
 """
 
@@ -26,13 +27,13 @@ Alyssa → Vanguard Admiral funds (VFIAX, VTIAX, VBTLX)
 # Fund provider → ticker mapping (used by custom plan)
 # ---------------------------------------------------------------------------
 FUND_TICKERS = {
-    "fidelity": {"us": "FXAIX", "intl": "FSGGX", "bond": "FXNAX"},
+    "fidelity": {"us": "FXAIX", "intl": "FSGGX", "small_cap": "FSSNX", "bond": "FXNAX"},
     "vanguard": {"us": "VFIAX", "intl": "VTIAX", "bond": "VBTLX"},
 }
 
 # Phase allocation percentages
 PHASE_ALLOCATIONS = {
-    "phase_1": {"us_stock": 0.70, "foreign_stock": 0.30},
+    "phase_1": {"us_stock": 0.60, "foreign_stock": 0.25, "small_cap": 0.15},
     "phase_2": {"us_stock": 0.60, "foreign_stock": 0.20, "bonds": 0.20},
     "phase_3": {"us_stock": 0.40, "foreign_stock": 0.20, "bonds": 0.40},
 }
@@ -145,6 +146,7 @@ def _format_allocation_label(allocation: Dict[str, Dict]) -> str:
     labels = {
         "us_stock": "US Stock",
         "foreign_stock": "Intl Stock",
+        "small_cap": "Small Cap",
         "bonds": "Bonds",
     }
     return " / ".join(
@@ -327,7 +329,7 @@ def retirement_401k_age_based_plan_phase_1(
     """
     Phase 1 of the 401k plan — current age through age 50.
 
-    Allocation: 70% US Stock (S&P 500), 30% Foreign Stock (Ex-US).
+    Allocation: 60% US Stock (S&P 500), 25% Foreign Stock (Ex-US), 15% Small Cap.
 
     Args:
         beneficiary:  Name of user ('Steven' or 'Alyssa')

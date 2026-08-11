@@ -134,6 +134,28 @@
       "volatility_pct": 21.5
     },
     {
+      "ticker": "FSSNX",
+      "52_week_high": 28.90,
+      "52_week_low": 20.15,
+      "allocation_domestic_pct": 100,
+      "allocation_international_pct": 0,
+      "assets_under_management_billions": 8.9,
+      "category": "US Small Cap",
+      "current_price": 25.60,
+      "dividend_yield_pct": 1.1,
+      "expense_ratio": 0.025,
+      "expense_ratio_note": "Extremely low expense ratio",
+      "fund_type": "Mutual Fund",
+      "holdings_count": 1900,
+      "inception_date": "2011-09-08",
+      "name": "Fidelity Small Cap Index Fund",
+      "projected_annual_return_pct": 10.8,
+      "rebalance_frequency": "Annual",
+      "return_assumption_basis": "Long-term Russell 2000 / US small-cap average",
+      "top_holdings": ["Sprouts Farmers Market", "Insmed", "FTAI Aviation"],
+      "volatility_pct": 25.5
+    },
+    {
       "ticker": "FZROX",
       "52_week_high": 141.75,
       "52_week_low": 112.30,
