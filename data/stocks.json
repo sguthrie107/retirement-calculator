@@ -90,6 +90,28 @@
       "volatility_pct": 18.2
     },
     {
+      "ticker": "FSMDX",
+      "52_week_high": 38.25,
+      "52_week_low": 29.10,
+      "allocation_domestic_pct": 100,
+      "allocation_international_pct": 0,
+      "assets_under_management_billions": 35.0,
+      "category": "US Mid Cap",
+      "current_price": 36.40,
+      "dividend_yield_pct": 1.25,
+      "expense_ratio": 0.025,
+      "expense_ratio_note": "Low expense ratio",
+      "fund_type": "Mutual Fund",
+      "holdings_count": 800,
+      "inception_date": "2001-03-15",
+      "name": "Fidelity Mid Cap Index Fund",
+      "projected_annual_return_pct": 10.5,
+      "rebalance_frequency": "Annual",
+      "return_assumption_basis": "Long-term US mid-cap market average",
+      "top_holdings": ["Targa Resources", "Williams-Sonoma", "Builders FirstSource"],
+      "volatility_pct": 21.0
+    },
+    {
       "ticker": "FZILX",
       "52_week_high": 66.80,
       "52_week_low": 51.20,

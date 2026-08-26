@@ -126,9 +126,10 @@
           "name": "Growth (Up to 50)",
           "end_age": 50,
           "allocation": {
-            "us_stock": { "pct": 0.60, "ticker": "FXAIX", "label": "S&P 500" },
-            "foreign_stock": { "pct": 0.25, "ticker": "FSGGX", "label": "International Index" },
-            "small_cap": { "pct": 0.15, "ticker": "FSSNX", "label": "Small Cap Index" }
+            "us_stock": { "pct": 0.55, "ticker": "FXAIX", "label": "S&P 500" },
+            "mid_cap": { "pct": 0.10, "ticker": "FSMDX", "label": "Mid Cap Index" },
+            "small_cap": { "pct": 0.10, "ticker": "FSSNX", "label": "Small Cap Index" },
+            "foreign_stock": { "pct": 0.25, "ticker": "FSGGX", "label": "International Index" }
           }
         },
         "phase_2": {
