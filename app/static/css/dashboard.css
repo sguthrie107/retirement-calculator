@@ -42,34 +42,22 @@ body {
     overflow-x: hidden;
 }
 
-body::before,
-body::after {
+body::before {
     content: "";
     position: fixed;
-    inset: -64px;
+    inset: -26px;
     pointer-events: none;
     z-index: 0;
     background-repeat: repeat;
+    background-image:
+        radial-gradient(circle, var(--dot-grid-color) 1.2px, transparent 1.3px),
+        radial-gradient(circle, var(--dot-grid-color-soft) 1px, transparent 1.1px);
+    background-size: 26px 26px, 26px 26px;
+    background-position: 0 0, 13px 13px;
     will-change: transform;
     backface-visibility: hidden;
-    transform: translate3d(0, 0, 0);
-}
-
-body::before {
-    background-image:
-        radial-gradient(circle, var(--dot-grid-color) 1.2px, transparent 1.3px);
-    background-size: 26px 26px;
-    animation: dot-wave-primary 26s linear infinite;
+    animation: dot-wave 30s linear infinite;
     opacity: 0.8;
-}
-
-body::after {
-    background-image:
-        radial-gradient(circle, var(--dot-grid-color-soft) 1px, transparent 1.1px);
-    background-size: 26px 26px;
-    background-position: 13px 13px;
-    animation: dot-wave-secondary 34s linear infinite;
-    opacity: 0.7;
 }
 
 body > * {
@@ -77,45 +65,20 @@ body > * {
     z-index: 1;
 }
 
-@keyframes dot-wave-primary {
+@keyframes dot-wave {
     0% {
         transform: translate3d(0, 0, 0);
     }
-    25% {
+    50% {
         transform: translate3d(13px, -6px, 0);
     }
-    50% {
+    100% {
         transform: translate3d(26px, 0, 0);
-    }
-    75% {
-        transform: translate3d(39px, 6px, 0);
-    }
-    100% {
-        transform: translate3d(52px, 0, 0);
-    }
-}
-
-@keyframes dot-wave-secondary {
-    0% {
-        transform: translate3d(0, 0, 0);
-    }
-    25% {
-        transform: translate3d(-13px, 5px, 0);
-    }
-    50% {
-        transform: translate3d(-26px, 0, 0);
-    }
-    75% {
-        transform: translate3d(-39px, -5px, 0);
-    }
-    100% {
-        transform: translate3d(-52px, 0, 0);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    body::before,
-    body::after {
+    body::before {
         animation: none;
     }
 }
@@ -304,6 +267,40 @@ header p {
     min-width: 88px;
     text-align: center;
     font-weight: 700;
+}
+
+#dreamCareerTransitionAgeInput {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 0.84rem;
+    padding: 0.4rem 0.5rem;
+    min-height: 36px;
+    text-align: center;
+}
+
+.dream-career-badge {
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 10px;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+}
+
+.dream-career-badge.feasible {
+    background: rgba(5, 150, 105, 0.1);
+    border-color: rgba(5, 150, 105, 0.35);
+    color: #065F46;
+}
+
+.dream-career-badge.infeasible {
+    background: rgba(220, 38, 38, 0.08);
+    border-color: rgba(220, 38, 38, 0.3);
+    color: #991B1B;
 }
 
 select {
@@ -671,6 +668,34 @@ select:focus {
     letter-spacing: 0.4px;
     font-weight: 600;
     border-bottom: 2px solid var(--primary-hover);
+}
+
+.holdings-sort-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.holdings-sort-toggle {
+    border: 1px solid rgba(248, 245, 238, 0.35);
+    background: rgba(248, 245, 238, 0.12);
+    color: #F8F5EE;
+    border-radius: 999px;
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.72rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+}
+
+.holdings-sort-toggle:hover {
+    background: rgba(248, 245, 238, 0.25);
+}
+
+.holdings-sort-toggle.active {
+    border-color: #F8F5EE;
+    background: rgba(248, 245, 238, 0.32);
 }
 
 .holdings-table tbody tr:nth-child(odd) td {
