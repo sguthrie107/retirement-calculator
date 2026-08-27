@@ -45,7 +45,7 @@ body {
 body::before {
     content: "";
     position: fixed;
-    inset: -26px;
+    inset: 0;
     pointer-events: none;
     z-index: 0;
     background-repeat: repeat;
@@ -54,33 +54,12 @@ body::before {
         url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26'%3E%3Ccircle cx='13' cy='13' r='1' fill='rgba(31,58,138,0.22)'/%3E%3C/svg%3E");
     background-size: 26px 26px, 26px 26px;
     background-position: 0 0, 13px 13px;
-    will-change: transform;
-    backface-visibility: hidden;
-    animation: dot-wave 30s linear infinite;
     opacity: 0.8;
 }
 
 body > * {
     position: relative;
     z-index: 1;
-}
-
-@keyframes dot-wave {
-    0% {
-        transform: translate3d(0, 0, 0);
-    }
-    50% {
-        transform: translate3d(13px, -6px, 0);
-    }
-    100% {
-        transform: translate3d(26px, 0, 0);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    body::before {
-        animation: none;
-    }
 }
 
 .container {
