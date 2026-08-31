@@ -344,31 +344,60 @@ select:focus {
 
 .faq-section {
     background: var(--surface);
-    padding: 2rem;
+    padding: 0;
     border-radius: 16px;
     box-shadow: var(--shadow-sm);
     margin-bottom: 2rem;
     border: 1px solid var(--border);
 }
 
-.faq-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 1rem;
-    margin-bottom: 1.25rem;
+.faq-disclosure-summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 1.25rem 1.5rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 1rem;
+    align-items: center;
 }
 
-.faq-header h2 {
-    margin-bottom: 0.2rem;
+.faq-disclosure-summary::-webkit-details-marker {
+    display: none;
+}
+
+.faq-disclosure-summary:focus-visible {
+    outline: 3px solid var(--primary-color);
+    outline-offset: -3px;
+    border-radius: 16px;
+}
+
+.faq-disclosure-title {
     font-size: 1.35rem;
     font-weight: 700;
     color: var(--text-primary);
 }
 
-.faq-header p {
+.faq-disclosure-description {
     color: var(--text-secondary);
     font-size: 0.92rem;
+}
+
+.faq-disclosure-summary::after {
+    content: "+";
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    color: var(--primary-color);
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.faq-disclosure[open] .faq-disclosure-summary::after {
+    content: "-";
+}
+
+.faq-disclosure-content {
+    border-top: 1px solid var(--border);
+    padding: 1.25rem 1.5rem 1.5rem;
 }
 
 .faq-list {

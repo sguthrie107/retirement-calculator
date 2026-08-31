@@ -93,6 +93,16 @@ def _basic_auth(username: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
+class TestDashboardRendering:
+    def test_dashboard_includes_collapsible_faqs(self, client):
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert '<details class="faq-section faq-disclosure"' in response.text
+        assert "Can a self-directed plan help avoid AUM fees?" in response.text
+        assert "What assumptions are behind the Monte Carlo stress test?" in response.text
+
+
 class TestSanitizeName:
     def test_valid_name(self):
         assert sanitize_name("Steven") == "Steven"

@@ -56,13 +56,20 @@
                 <option value="0.07">7%</option>
             </select>
         </div>
+        <div class="control-group" id="dreamCareerControlGroup" style="display: none;">
+            <label class="control-rate-label" for="dreamCareerTransitionAgeInput">Dream Career Path @ age:</label>
+            <input type="number" id="dreamCareerTransitionAgeInput" min="18" max="100" step="1" value="55"
+                   onchange="onDreamCareerTransitionAgeChange()" style="width: 4.5rem;">
+        </div>
     </div>
+    <div id="dreamCareerFeasibilityBadge" class="dream-career-badge" style="display: none;"></div>
 </div>
 
 <div class="chart-container">
     <h2 class="chart-title">Portfolio Projection</h2>
     <canvas id="retirementChart"></canvas>
 </div>
+
 
 <div id="holdingsSection" class="holdings-section" style="display: none;">
     <div class="holdings-header">
@@ -104,52 +111,58 @@
     </div>
 </div>
 
-<section class="faq-section" aria-labelledby="retirementFaqTitle">
-    <div class="faq-header">
-        <div>
-            <h2 id="retirementFaqTitle">Frequently Asked Questions</h2>
-            <p>Key planning assumptions behind the retirement projection, target year, and withdrawal settings.</p>
+<details class="faq-section faq-disclosure" aria-labelledby="retirementFaqTitle">
+    <summary class="faq-disclosure-summary">
+        <span id="retirementFaqTitle" class="faq-disclosure-title" role="heading" aria-level="2">Frequently Asked Questions</span>
+        <span class="faq-disclosure-description">Planning assumptions, portfolio design, and retirement stress-test details.</span>
+    </summary>
+    <div class="faq-disclosure-content">
+        <div class="faq-list">
+            <details class="faq-item">
+                <summary>Can a self-directed plan help avoid AUM fees?</summary>
+                <div class="faq-answer">
+                    <p>Yes, when you are comfortable maintaining a simple plan. This dashboard is built to make the allocation, contributions, and tradeoffs visible so broad, low-cost funds can be managed directly without an ongoing assets-under-management fee. An advisor can still be valuable for estate, tax, insurance, or complex planning; compare the scope and total cost against the help you actually need.</p>
+                </div>
+            </details>
+            <details class="faq-item">
+                <summary>How diversified is a portfolio with only a few accounts?</summary>
+                <div class="faq-answer">
+                    <p>Account count and diversification are different things. The 401(k), Roth IRA, and optional HSA are tax wrappers; inside them, the configured index funds spread exposure across U.S. large-, mid-, small-, or total-market stocks, international stocks, and bonds. The allocations add more bonds as retirement approaches. The live holdings table shows the current weights, but diversification reduces concentration risk rather than eliminating market loss.</p>
+                </div>
+            </details>
+            <details class="faq-item">
+                <summary>How is the planned retirement year used?</summary>
+                <div class="faq-answer">
+                    <p>The planned retirement year determines when the model shifts from saving and employer-match contributions into withdrawals. Before retirement, the projection applies the saved contribution schedule and portfolio returns. At retirement, it begins the selected withdrawal scenario and accounts for configured Social Security, HSA medical spending, and rental cash flow where applicable.</p>
+                </div>
+            </details>
+            <details class="faq-item">
+                <summary>What do 5%, 6%, and 7% withdrawal rates actually mean?</summary>
+                <div class="faq-answer">
+                    <p>They are first-year spending rates applied to the spendable retirement portfolio. A 6% starting withdrawal is 20% more income than 5%, and 7% is 40% more. In the fixed scenario, that dollar amount then grows with the model's 3% inflation assumption, so the difference compounds over retirement. A lower rate preserves more recovery capacity after poor early returns; a higher rate provides more current income but leaves less margin. The guardrail option instead adjusts spending within its configured band.</p>
+                </div>
+            </details>
+            <details class="faq-item">
+                <summary>Which withdrawal rate is most effective?</summary>
+                <div class="faq-answer">
+                    <p>There is no universally correct rate. Use 5%, 6%, and 7% as comparable spending plans, then weigh the income each provides against its Monte Carlo success probability and the 10th, 50th, and 90th percentile outcomes. The most useful choice is one that covers a realistic spending need while retaining a cushion for weak markets, long life, and changes to the plan.</p>
+                </div>
+            </details>
+            <details class="faq-item">
+                <summary>What assumptions are behind the Monte Carlo stress test?</summary>
+                <div class="faq-answer">
+                    <p>Each refresh runs 10,000 return paths through age 88 using the active allocation for each account. Returns are allocation-weighted and modeled with a lognormal distribution, fat-tailed Student-t shocks, clustered volatility, and a 15% larger negative shock. The test uses 3% inflation, saved contributions before retirement, and configured cash flows. A path succeeds only when it avoids depletion and its inflation-adjusted ending net worth remains at least 10% of its first retirement-year net worth. It is a risk estimate, not a forecast or guarantee.</p>
+                </div>
+            </details>
+            <details class="faq-item">
+                <summary>Why do actual balances differ from the projection?</summary>
+                <div class="faq-answer">
+                    <p>The model uses a defined savings schedule and statistical return assumptions. Actual balances change with market performance, contribution timing, employer matches, rollovers, fund expenses, and withdrawals. The comparison table makes those differences visible so the next projection can start from real balances rather than an outdated estimate.</p>
+                </div>
+            </details>
         </div>
     </div>
-    <div class="faq-list">
-        <details class="faq-item">
-            <summary>How is the planned retirement year used?</summary>
-            <div class="faq-answer">
-                <p>The planned retirement year determines when the model shifts from the accumulation phase into withdrawals. Before that year, the portfolio grows from contributions and market returns. After that year, the projection assumes distributions begin under the selected scenario.</p>
-            </div>
-        </details>
-        <details class="faq-item">
-            <summary>What does the planned withdrawal rate represent?</summary>
-            <div class="faq-answer">
-                <p>The withdrawal rate is the annual percentage of the modeled portfolio drawn during retirement. It is a planning lever, not a recommendation. Higher rates increase near-term income but also raise the risk of the portfolio declining too quickly in weaker markets.</p>
-            </div>
-        </details>
-        <details class="faq-item">
-            <summary>Why can changing from 5% to 6% or 7% move the chart so much?</summary>
-            <div class="faq-answer">
-                <p>Small changes compound over a long retirement horizon. A one-point increase in withdrawals means more money leaves the portfolio every year, leaving less capital invested to recover from drawdowns and support later years.</p>
-            </div>
-        </details>
-        <details class="faq-item">
-            <summary>What does the Standard Deductions toggle affect?</summary>
-            <div class="faq-answer">
-                <p>It switches to the scenario that uses the standard-deduction tax treatment. That changes the retirement cash-flow assumptions and can affect the sustainable withdrawal path shown in the projection and stress test.</p>
-            </div>
-        </details>
-        <details class="faq-item">
-            <summary>How should I interpret the retirement stress test?</summary>
-            <div class="faq-answer">
-                <p>The stress test runs Monte Carlo trials to estimate how often the plan succeeds under different return sequences. It is primarily a sequence-of-returns check, so it helps answer whether the current retirement date and withdrawal assumptions look resilient or fragile.</p>
-            </div>
-        </details>
-        <details class="faq-item">
-            <summary>Why do actual balances differ from the projection?</summary>
-            <div class="faq-answer">
-                <p>The model assumes a simplified savings and return path. Actual balances move when market performance, contribution timing, employer matches, rollovers, fees, or withdrawals differ from that planned path. The comparison table is there to surface those gaps each year.</p>
-            </div>
-        </details>
-    </div>
-</section>
+</details>
 
 <!-- Balance entry form modal -->
 <div id="balanceModal" class="modal" style="display: none;">
