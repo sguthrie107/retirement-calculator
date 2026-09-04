@@ -5,7 +5,7 @@ Supports Traditional / Roth IRA contribution modeling with annual lump-sum
 deposits at the maximum allowed limit.
 
 Phase 1 (Up to 50):  60% FZROX / 30% FZILX / 10% us_large_cap
-                       (Steven → FNCMX, Alyssa → FSPGX)
+                       (Steven → FLCOX, Alyssa → FSPGX)
 Phase 2 (51 to 65):  60% FZROX / 20% FZILX / 20% FUAMX
 Phase 3 (65+):       40% FZROX / 20% FZILX / 15% FUAMX / 15% FNAX / 10% FIPDX
 

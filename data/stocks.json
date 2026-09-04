@@ -1,6 +1,28 @@
 {
   "funds": [
     {
+      "ticker": "FLCOX",
+      "52_week_high": 25.72,
+      "52_week_low": 19.73,
+      "allocation_domestic_pct": 100,
+      "allocation_international_pct": 0,
+      "assets_under_management_billions": 15.2,
+      "category": "US Large Cap Value",
+      "current_price": 25.72,
+      "dividend_yield_pct": 0.85,
+      "expense_ratio": 0.04,
+      "expense_ratio_note": "Low expense ratio for a passively managed index fund",
+      "fund_type": "Index Fund",
+      "holdings_count": 1000,
+      "inception_date": "2016-06-07",
+      "name": "Fidelity Large Cap Value Index Fund",
+      "projected_annual_return_pct": 10.0,
+      "rebalance_frequency": "Annual",
+      "return_assumption_basis": "Long-term large-cap value index average",
+      "top_holdings": ["AMZN", "AAPL", "MSFT"],
+      "volatility_pct": 17.5
+    },
+    {
       "ticker": "AMZN",
       "52_week_high": 220.85,
       "52_week_low": 156.45,

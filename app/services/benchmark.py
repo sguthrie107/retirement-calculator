@@ -52,6 +52,7 @@ TICKER_PROXY_MAP: dict[str, str] = {
     "FXAIX": "VOO",    # S&P 500 index
     "FSPGX": "VUG",    # Large-cap growth → Vanguard Growth ETF
     "FNCMX": "ONEQ",   # Nasdaq Composite Index → Fidelity Nasdaq Composite ETF
+    "FLCOX": "VTV",    # Large-cap value → Vanguard Value ETF
     "FSGGX": "VXUS",   # Global Equity ex-US
     "FSSNX": "VB",     # Small Cap Index → Vanguard Small-Cap ETF
     # Fidelity bond funds

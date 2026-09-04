@@ -89,3 +89,49 @@ def test_holdings_endpoint_returns_phase_and_trend(monkeypatch):
     assert payload["phase"]["401k"]["key"] == "phase_1"
     assert len(payload["holdings"]) == 2
     assert all(row["day_change_pct"] > 0 for row in payload["holdings"])
+
+
+def test_current_holdings_table_uses_flcox_for_steven_ira(monkeypatch):
+    profile = {
+        "name": "Steven",
+        "age": 29,
+        "age_reference_year": 2026,
+        "current_401k_balance": 0,
+        "current_ira_balance": 100000,
+        "ira_phases": {
+            "phase_1": {
+                "name": "Growth",
+                "end_age": 50,
+                "allocation": {
+                    "us_large_cap": {
+                        "pct": 0.10,
+                        "ticker": "FLCOX",
+                        "label": "Large Cap Value",
+                    }
+                },
+            }
+        },
+    }
+
+    monkeypatch.setattr(holdings_service, "_load_user_profile", lambda _username: profile)
+    monkeypatch.setattr(
+        holdings_service,
+        "get_quote_snapshot",
+        lambda ticker, _as_of=None: {
+            "ticker": ticker,
+            "price": 25.72,
+            "previous_close": 25.50,
+            "day_change": 0.22,
+            "day_change_pct": 0.8627,
+            "updated_at": "2027-01-01T00:00:00Z",
+            "status": "ok",
+            "source": "test",
+        },
+    )
+
+    payload = holdings_service.get_live_holdings_for_user("Steven", date(2027, 1, 1))
+
+    ira_rows = [row for row in payload["holdings"] if row["account_type"] == "roth_ira"]
+    assert len(ira_rows) == 1
+    assert ira_rows[0]["ticker"] == "FLCOX"
+    assert ira_rows[0]["label"] == "Large Cap Value"

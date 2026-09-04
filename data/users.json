@@ -86,7 +86,7 @@
           "allocation": {
             "us_total_market": { "pct": 0.60, "ticker": "FZROX", "label": "Total Market" },
             "foreign_stock": { "pct": 0.30, "ticker": "FZILX", "label": "Intl Index" },
-            "us_large_cap": { "pct": 0.10, "ticker": "FNCMX", "label": "Nasdaq" }
+            "us_large_cap": { "pct": 0.10, "ticker": "FLCOX", "label": "Large Cap Value" }
           }
         },
         "phase_2": {
